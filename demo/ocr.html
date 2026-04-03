@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Demo — cortex-ocr</title>
+    <script src="/elements.js"></script>
+    <link rel="stylesheet" href="/demo.css" />
+  </head>
+  <body>
+    <nav class="demo-nav">
+      <a href="/">← Índice</a>
+      <span class="badge">cortex-ocr</span>
+    </nav>
+
+    <h1 class="demo-title">cortex-ocr</h1>
+    <p class="demo-subtitle">Extrae datos estructurados de documentos oficiales (INE, pasaporte, CURP…)</p>
+
+    <!-- Token input -->
+    <div class="token-card">
+      <label class="token-card__label" for="token-input">API Token</label>
+      <div class="token-card__row">
+        <textarea
+          id="token-input"
+          rows="3"
+          placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+        <button class="token-card__btn" id="apply-btn">Aplicar</button>
+      </div>
+      <p id="token-status" class="token-card__status"></p>
+    </div>
+
+    <!-- Element — shown only after token is applied -->
+    <div id="element-wrapper" class="element-wrapper">
+      <cortex-ocr id="ocr" mode="both" accept="image/*,application/pdf"></cortex-ocr>
+    </div>
+
+    <p class="result-label">Resultado</p>
+    <pre id="output">El resultado aparecerá aquí después de procesar un documento.</pre>
+
+    <script type="module">
+      import { initDemo } from '/demo.js'
+
+      const output = document.getElementById('output')
+
+      initDemo({
+        elementId: 'ocr',
+        onApply(el) {
+          el.onResult = (data) => {
+            output.textContent = JSON.stringify(data, null, 2)
+          }
+          el.addEventListener('cortex:error', (e) => {
+            output.textContent = 'Error:\n' + JSON.stringify(e.detail, null, 2)
+          })
+          el.addEventListener('cortex:loading', (e) => {
+            if (e.detail.loading) output.textContent = 'Procesando...'
+          })
+        },
+      })
+    </script>
+  </body>
+</html>

@@ -1,0 +1,122 @@
+/* Shared demo page styles */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0a0f1c;
+  color: #f1f5f9;
+  padding: 2rem 1.5rem 4rem;
+  max-width: 700px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* ── Nav ─────────────────────────────────────────────────────── */
+.demo-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  font-size: 0.875rem;
+}
+.demo-nav a { color: #06b6d4; text-decoration: none; }
+.demo-nav a:hover { text-decoration: underline; }
+.demo-nav .badge {
+  background: #1e293b;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 99px;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* ── Heading ─────────────────────────────────────────────────── */
+.demo-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; }
+.demo-subtitle { font-size: 0.875rem; color: #64748b; margin-bottom: 1.75rem; }
+
+/* ── Token card ──────────────────────────────────────────────── */
+.token-card {
+  background: #111827;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.token-card__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+.token-card__row { display: flex; gap: 0.5rem; align-items: flex-start; }
+.token-card textarea {
+  flex: 1;
+  background: #0f172a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 0.5rem;
+  color: #f1f5f9;
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-size: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  resize: vertical;
+  min-height: 68px;
+  transition: border-color 0.15s;
+}
+.token-card textarea:focus {
+  outline: none;
+  border-color: #06b6d4;
+}
+.token-card textarea::placeholder { color: #334155; }
+.token-card__btn {
+  background: #06b6d4;
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+  align-self: stretch;
+}
+.token-card__btn:hover { opacity: 0.88; }
+.token-card__status {
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+  min-height: 1rem;
+}
+.token-card__status--ok { color: #22c55e; }
+.token-card__status--err { color: #ef4444; }
+
+/* ── Element wrapper (hidden until token applied) ─────────────── */
+.element-wrapper {
+  display: none;
+  margin-bottom: 1.5rem;
+}
+.element-wrapper.active { display: block; }
+
+/* ── Result panel ────────────────────────────────────────────── */
+.result-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+pre#output {
+  background: #111827;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  overflow: auto;
+  white-space: pre-wrap;
+  min-height: 3rem;
+}

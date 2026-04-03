@@ -1,0 +1,40 @@
+/*
+ * Design tokens — override from outside the element using CSS custom properties.
+ *
+ * Example:
+ *   cortex-ocr {
+ *     --cortex-primary: #7c3aed;
+ *     --cortex-bg: #ffffff;
+ *   }
+ */
+:host {
+  /* Brand */
+  --cortex-primary: #06b6d4;
+  --cortex-primary-hover: #0891b2;
+
+  /* Surfaces */
+  --cortex-bg: #0f172a;
+  --cortex-surface: #1e293b;
+  --cortex-surface-hover: #273548;
+
+  /* Borders */
+  --cortex-border: rgba(255, 255, 255, 0.1);
+  --cortex-border-focus: rgba(6, 182, 212, 0.6);
+
+  /* Text */
+  --cortex-text: #f1f5f9;
+  --cortex-text-muted: #94a3b8;
+
+  /* Feedback */
+  --cortex-error: #ef4444;
+  --cortex-error-bg: rgba(239, 68, 68, 0.08);
+  --cortex-success: #22c55e;
+
+  /* Shape */
+  --cortex-radius: 0.75rem;
+  --cortex-radius-sm: 0.5rem;
+
+  /* Typography */
+  --cortex-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --cortex-font-size: 0.9375rem;
+}

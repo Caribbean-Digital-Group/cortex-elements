@@ -1,29 +1,24 @@
 {
   "name": "cortex-elements",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "run-p type-check \"build-only {@}\" --",
-    "preview": "vite preview",
+    "dev": "vite build --watch",
+    "build": "tsc --noEmit && vite build",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build"
-  },
-  "dependencies": {
-    "pinia": "^3.0.4",
-    "vue": "^3.5.31"
+    "type-check": "tsc --noEmit",
+    "demo": "npm run build-only && vite --config vite.demo.config.ts",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.4",
     "@types/node": "^24.12.0",
-    "@vitejs/plugin-vue": "^6.0.5",
-    "@vue/tsconfig": "^0.9.1",
-    "npm-run-all2": "^8.0.4",
+    "terser": "^5.46.1",
     "typescript": "~6.0.0",
     "vite": "^8.0.3",
-    "vite-plugin-vue-devtools": "^8.1.1",
-    "vue-tsc": "^3.2.6"
+    "vitest": "^3.0.0"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
