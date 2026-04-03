@@ -7,6 +7,15 @@
   padding: 0;
 }
 
+/*
+ * Enforce [hidden] inside Shadow DOM.
+ * Without this, class rules with display:flex/block override the browser's
+ * default [hidden]{display:none} — causing overlays to always be visible.
+ */
+[hidden] {
+  display: none !important;
+}
+
 :host {
   display: block;
   font-family: var(--cortex-font);
