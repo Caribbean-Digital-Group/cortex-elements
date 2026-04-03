@@ -44,8 +44,18 @@
         ></textarea>
         <button class="token-card__btn" id="apply-btn">Guardar</button>
       </div>
+      <div class="token-card__url">
+        <span class="token-card__url-label">API URL</span>
+        <input
+          id="api-url-input"
+          type="url"
+          placeholder="http://localhost:8000  (vacío = producción)"
+          spellcheck="false"
+          autocomplete="off"
+        />
+      </div>
       <p id="token-status" class="token-card__status"></p>
-      <p class="hint">El token solo se guarda en tu navegador (localStorage). Nunca se envía a ningún servidor salvo el backend de Cortex.</p>
+      <p class="hint">Token y URL se guardan en localStorage. Nunca se envían a ningún servidor salvo el backend configurado.</p>
     </div>
 
     <div class="card-grid">
@@ -64,27 +74,37 @@
     </div>
 
     <script>
-      const STORAGE_KEY = 'cortex_demo_token'
+      const KEY_TOKEN = 'cortex_demo_token'
+      const KEY_URL   = 'cortex_demo_api_url'
+
       const textarea = document.getElementById('token-input')
+      const urlInput = document.getElementById('api-url-input')
       const applyBtn = document.getElementById('apply-btn')
       const statusEl = document.getElementById('token-status')
 
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        textarea.value = saved
-        statusEl.textContent = '✓ Token cargado desde localStorage'
+      const savedToken = localStorage.getItem(KEY_TOKEN)
+      const savedUrl   = localStorage.getItem(KEY_URL) ?? ''
+      if (savedToken) textarea.value = savedToken
+      if (savedUrl)   urlInput.value  = savedUrl
+      if (savedToken) {
+        const urlLabel = savedUrl ? ` → ${savedUrl}` : ' → producción'
+        statusEl.textContent = `✓ Configuración cargada${urlLabel}`
         statusEl.className = 'token-card__status token-card__status--ok'
       }
 
       applyBtn.addEventListener('click', () => {
-        const token = textarea.value.trim()
+        const token  = textarea.value.trim()
+        const apiUrl = urlInput.value.trim()
         if (!token) {
           statusEl.textContent = '✗ Ingresa un token'
           statusEl.className = 'token-card__status token-card__status--err'
           return
         }
-        localStorage.setItem(STORAGE_KEY, token)
-        statusEl.textContent = '✓ Token guardado — abre cualquier demo'
+        localStorage.setItem(KEY_TOKEN, token)
+        if (apiUrl) localStorage.setItem(KEY_URL, apiUrl)
+        else        localStorage.removeItem(KEY_URL)
+        const urlLabel = apiUrl ? ` → ${apiUrl}` : ' → producción'
+        statusEl.textContent = `✓ Guardado${urlLabel} — abre cualquier demo`
         statusEl.className = 'token-card__status token-card__status--ok'
       })
 

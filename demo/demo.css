@@ -84,6 +84,36 @@ body {
   align-self: stretch;
 }
 .token-card__btn:hover { opacity: 0.88; }
+.token-card__url {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.token-card__url-label {
+  font-size: 0.8125rem;
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.token-card__url input {
+  flex: 1;
+  background: #0f172a;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 0.5rem;
+  color: #f1f5f9;
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-size: 0.8125rem;
+  padding: 0.4rem 0.625rem;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+.token-card__url input:focus {
+  outline: none;
+  border-color: #06b6d4;
+}
+.token-card__url input::placeholder { color: #334155; }
+
 .token-card__status {
   font-size: 0.75rem;
   margin-top: 0.5rem;

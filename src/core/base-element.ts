@@ -86,7 +86,13 @@ export abstract class BaseElement extends HTMLElement {
    */
   protected handleError(error: unknown): void {
     const code = (error as { code?: string })?.code ?? 'UNKNOWN_ERROR'
-    const message = error instanceof Error ? error.message : String(error)
+    // Handles: Error instances, plain {code,message} objects, and unknown throws
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof (error as { message?: unknown }).message === 'string'
+          ? (error as { message: string }).message
+          : String(error)
     this.emit('cortex:error', { code, message })
     const errEl = this.shadowRoot?.querySelector<HTMLElement>('[data-error]')
     if (errEl) {

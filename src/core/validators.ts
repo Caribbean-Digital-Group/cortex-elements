@@ -28,12 +28,17 @@ const ACCEPT_MIME_MAP = new Map<string, string[]>([
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
 
 /**
- * API keys must be 16–256 characters of alphanumerics, hyphens, or underscores.
- * This is a client-side sanity check — the server is the authoritative validator.
+ * Validates an API key (plain token or JWT).
+ * - Plain token: alphanumerics + hyphens/underscores, 16–256 chars
+ * - JWT: three base64url segments separated by dots (eyJ…)
+ * Client-side sanity check only — the server is the authoritative validator.
  */
 export function validateApiKey(value: string | null | undefined): boolean {
   if (!value || typeof value !== 'string') return false
-  return /^[A-Za-z0-9_\-]{16,256}$/.test(value)
+  const B64URL = '[A-Za-z0-9_\\-]+'
+  const isPlainToken = /^[A-Za-z0-9_\-]{16,256}$/.test(value)
+  const isJwt = new RegExp(`^${B64URL}\\.${B64URL}\\.${B64URL}$`).test(value)
+  return isPlainToken || isJwt
 }
 
 /**
