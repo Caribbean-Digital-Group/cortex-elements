@@ -2,8 +2,40 @@ import { BaseElement } from '../core/base-element'
 import { FileDropzone } from '../ui/file-dropzone'
 import { CameraCapture } from '../ui/camera-capture'
 import { SHARED_CSS } from '../styles/shared'
+import { DEFAULT_OCR_MODEL } from '../core/api-client'
 
 type OcrMode = 'upload' | 'camera' | 'both'
+
+/**
+ * Converts a File to a pure base64 string (no data: URI prefix).
+ */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== 'string') { reject(new Error('Error al leer el archivo')); return }
+      const base64 = result.split(',')[1]
+      if (base64) resolve(base64)
+      else reject(new Error('Formato de archivo no reconocido'))
+    }
+    reader.onerror = () => reject(new Error('Error al leer el archivo'))
+    reader.readAsDataURL(file)
+  })
+}
+
+/** PDFs are treated as documents; everything else as images. */
+function mimeToContentType(mime: string): 'image' | 'document' {
+  return mime === 'application/pdf' ? 'document' : 'image'
+}
+
+/**
+ * Sanitizes the model name to prevent URL path injection.
+ * Only alphanumerics, hyphens, and underscores are allowed.
+ */
+function sanitizeModel(raw: string): string {
+  return /^[A-Za-z0-9_\-]+$/.test(raw) ? raw : DEFAULT_OCR_MODEL
+}
 
 /**
  * <cortex-ocr> — document capture & OCR extraction.
@@ -14,6 +46,14 @@ type OcrMode = 'upload' | 'camera' | 'both'
  *   mode      "upload" | "camera" | "both"  (default: "both")
  *   accept    MIME type filter for file upload  (default: "image/*,application/pdf")
  *   lang      Output language for extracted fields  (default: "es")
+ *   model     OCR model to use  (default: "mistral-ocr-latest")
+ *             Examples: "mistral-ocr-latest", "glm-ocr"
+ *
+ * Endpoint routing (by file type and model):
+ *   image  + mistral-ocr-latest → POST /ocr/image/base64      { image_base64 }
+ *   pdf    + mistral-ocr-latest → POST /ocr/document/base64   { document_base64 }
+ *   image  + glm-ocr            → POST /glm-ocr/image/base64  { image_base64 }
+ *   pdf    + glm-ocr            → POST /glm-ocr/document/base64 { document_base64 }
  *
  * JS property:
  *   onResult  (data: OcrResult) => void
@@ -24,14 +64,14 @@ type OcrMode = 'upload' | 'camera' | 'both'
  *   cortex:loading  detail: { loading: boolean }
  *
  * Usage:
- *   <cortex-ocr api-key="ck_live_..." mode="both"></cortex-ocr>
+ *   <cortex-ocr api-key="ck_live_..." mode="both" model="glm-ocr"></cortex-ocr>
  *   document.querySelector('cortex-ocr').onResult = (r) => console.log(r)
  */
 export class CortexOcr extends BaseElement {
   private camera: CameraCapture | null = null
 
   static override get observedAttributes(): string[] {
-    return [...super.observedAttributes, 'mode', 'accept', 'lang']
+    return [...super.observedAttributes, 'mode', 'accept', 'lang', 'model']
   }
 
   private get mode(): OcrMode {
@@ -41,6 +81,10 @@ export class CortexOcr extends BaseElement {
 
   private get accept(): string {
     return this.getAttribute('accept') ?? 'image/*,application/pdf'
+  }
+
+  private get model(): string {
+    return sanitizeModel(this.getAttribute('model') ?? DEFAULT_OCR_MODEL)
   }
 
   protected override render(): void {
@@ -77,7 +121,8 @@ export class CortexOcr extends BaseElement {
 
     if (showCamera) {
       this.camera = new CameraCapture({
-        onCapture: (base64) => void this.handleBase64(base64),
+        // Camera always captures images (JPEG), never PDFs
+        onCapture: (base64) => void this.sendBase64(base64, 'image'),
         onError: (msg) => this.handleError({ code: 'CAMERA_ERROR', message: msg }),
       })
       root.querySelector('[data-camera]')!.appendChild(this.camera.element)
@@ -85,23 +130,18 @@ export class CortexOcr extends BaseElement {
   }
 
   private async handleFile(file: File): Promise<void> {
-    if (!this.client) {
-      this.handleError({ code: 'INVALID_API_KEY', message: 'Configura un api-key válido.' })
-      return
-    }
-    this.hideError()
-    this.setLoading(true)
+    let base64: string
     try {
-      const result = await this.client.ocrDocument(file)
-      this.callOnResult(result)
+      base64 = await fileToBase64(file)
     } catch (err) {
       this.handleError(err)
-    } finally {
-      this.setLoading(false)
+      return
     }
+    const contentType = mimeToContentType(file.type)
+    await this.sendBase64(base64, contentType)
   }
 
-  private async handleBase64(base64: string): Promise<void> {
+  private async sendBase64(base64: string, contentType: 'image' | 'document'): Promise<void> {
     if (!this.client) {
       this.handleError({ code: 'INVALID_API_KEY', message: 'Configura un api-key válido.' })
       return
@@ -109,7 +149,7 @@ export class CortexOcr extends BaseElement {
     this.hideError()
     this.setLoading(true)
     try {
-      const result = await this.client.ocrDocumentBase64(base64)
+      const result = await this.client.ocrBase64(base64, contentType, this.model)
       this.callOnResult(result)
     } catch (err) {
       this.handleError(err)

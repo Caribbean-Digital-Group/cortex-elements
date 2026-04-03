@@ -6,6 +6,33 @@
     <title>Demo — cortex-ocr</title>
     <script src="/elements.js"></script>
     <link rel="stylesheet" href="/demo.css" />
+    <style>
+      .model-row {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        margin-top: 0.75rem;
+      }
+      .model-row label {
+        font-size: 0.8125rem;
+        color: #64748b;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .model-row input {
+        flex: 1;
+        background: #0f172a;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 0.5rem;
+        color: #f1f5f9;
+        font-family: 'Menlo', 'Consolas', monospace;
+        font-size: 0.8125rem;
+        padding: 0.4rem 0.625rem;
+        min-width: 0;
+        transition: border-color 0.15s;
+      }
+      .model-row input:focus { outline: none; border-color: #06b6d4; }
+    </style>
   </head>
   <body>
     <nav class="demo-nav">
@@ -14,9 +41,9 @@
     </nav>
 
     <h1 class="demo-title">cortex-ocr</h1>
-    <p class="demo-subtitle">Extrae datos estructurados de documentos oficiales (INE, pasaporte, CURP…)</p>
+    <p class="demo-subtitle">Extrae datos estructurados de documentos oficiales (INE, pasaporte, CURP, RFC…)</p>
 
-    <!-- Token input -->
+    <!-- Config card -->
     <div class="token-card">
       <label class="token-card__label" for="token-input">API Token</label>
       <div class="token-card__row">
@@ -29,6 +56,7 @@
         ></textarea>
         <button class="token-card__btn" id="apply-btn">Aplicar</button>
       </div>
+
       <div class="token-card__url">
         <span class="token-card__url-label">API URL</span>
         <input
@@ -39,6 +67,23 @@
           autocomplete="off"
         />
       </div>
+
+      <!-- Model selector -->
+      <div class="model-row">
+        <label for="model-input">Modelo OCR</label>
+        <input
+          id="model-input"
+          list="model-list"
+          placeholder="mistral-ocr-latest"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <datalist id="model-list">
+          <option value="mistral-ocr-latest"></option>
+          <option value="glm-ocr"></option>
+        </datalist>
+      </div>
+
       <p id="token-status" class="token-card__status"></p>
     </div>
 
@@ -53,11 +98,36 @@
     <script type="module">
       import { initDemo } from '/demo.js'
 
-      const output = document.getElementById('output')
+      const KEY_MODEL = 'cortex_demo_ocr_model'
+      const output    = document.getElementById('output')
+      const modelInput = document.getElementById('model-input')
+      const el = document.getElementById('ocr')
+
+      // Restore saved model
+      const savedModel = localStorage.getItem(KEY_MODEL)
+      if (savedModel) modelInput.value = savedModel
+
+      // Apply model to element whenever it changes
+      function applyModel() {
+        const model = modelInput.value.trim() || 'mistral-ocr-latest'
+        localStorage.setItem(KEY_MODEL, model)
+        el.setAttribute('model', model)
+      }
+
+      modelInput.addEventListener('change', applyModel)
+      modelInput.addEventListener('input', () => {
+        // Only apply on explicit selection from datalist
+        if ([...document.getElementById('model-list').options].some(o => o.value === modelInput.value)) {
+          applyModel()
+        }
+      })
 
       initDemo({
         elementId: 'ocr',
         onApply(el) {
+          // Apply saved or entered model on init
+          applyModel()
+
           el.onResult = (data) => {
             output.textContent = JSON.stringify(data, null, 2)
           }

@@ -4,6 +4,12 @@ import type { SignatureResult } from '../types/signature'
 
 export const DEFAULT_API_URL = 'https://api.cortexverify.com'
 
+/**
+ * Default OCR model — maps to the /ocr/ URL prefix.
+ * Any other model name maps to /{model}/ prefix.
+ */
+export const DEFAULT_OCR_MODEL = 'mistral-ocr-latest'
+
 const REQUEST_TIMEOUT_MS = 30_000
 
 // ─── Error type ──────────────────────────────────────────────────────────────
@@ -79,22 +85,34 @@ export class ApiClient {
 
   // ── OCR ────────────────────────────────────────────────────────────────────
 
-  async ocrDocument(file: File): Promise<OcrResult> {
-    const form = new FormData()
-    form.append('file', file)
-    const res = await withTimeout(`${this.base}/ocr/document`, {
-      method: 'POST',
-      headers: this.commonHeaders,
-      body: form,
-    })
-    return parseResponse<OcrResult>(res)
-  }
+  /**
+   * Sends base64-encoded content to the appropriate OCR endpoint.
+   *
+   * Routing rules:
+   *   model = DEFAULT_OCR_MODEL ('mistral-ocr-latest') → /ocr/{contentType}/base64
+   *   model = anything else                            → /{model}/{contentType}/base64
+   *
+   * Payload field name:
+   *   contentType = 'image'    → { image_base64: "..." }
+   *   contentType = 'document' → { document_base64: "..." }
+   */
+  async ocrBase64(
+    base64: string,
+    contentType: 'image' | 'document',
+    model: string = DEFAULT_OCR_MODEL,
+  ): Promise<OcrResult> {
+    // Default model uses the generic /ocr/ prefix; custom models use /{model}/
+    const prefix = model === DEFAULT_OCR_MODEL ? 'ocr' : model
+    const path = `/${prefix}/${contentType}/base64`
+    const body =
+      contentType === 'image'
+        ? { image_base64: base64 }
+        : { document_base64: base64 }
 
-  async ocrDocumentBase64(image: string): Promise<OcrResult> {
-    const res = await withTimeout(`${this.base}/ocr/document/base64`, {
+    const res = await withTimeout(`${this.base}${path}`, {
       method: 'POST',
       headers: { ...this.commonHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image }),
+      body: JSON.stringify(body),
     })
     return parseResponse<OcrResult>(res)
   }
