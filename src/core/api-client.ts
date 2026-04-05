@@ -123,7 +123,7 @@ export class ApiClient {
     const res = await withTimeout(`${this.base}/face/compare/base64`, {
       method: 'POST',
       headers: { ...this.commonHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image1, image2 }),
+      body: JSON.stringify({ image_base64_1: image1, image_base64_2: image2 }),
     })
     return parseResponse<IdentityResult>(res)
   }
