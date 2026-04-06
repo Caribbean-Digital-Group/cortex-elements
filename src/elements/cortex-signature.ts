@@ -27,6 +27,19 @@ type SignatureMode = 'upload' | 'canvas' | 'both'
  *   <cortex-signature api-key="ck_live_..." mode="both"></cortex-signature>
  *   document.querySelector('cortex-signature').onResult = (r) => console.log(r.authentic)
  */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // Strip the data URL prefix (e.g. "data:image/png;base64,")
+      resolve(result.split(',')[1] ?? result)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
 export class CortexSignature extends BaseElement {
   private referenceFile: File | null = null
   private sampleBlob: File | Blob | null = null
@@ -143,7 +156,11 @@ export class CortexSignature extends BaseElement {
     this.hideError()
     this.setLoading(true)
     try {
-      const result = await this.client.signatureCompare(this.referenceFile, this.sampleBlob)
+      const [refBase64, sampleBase64] = await Promise.all([
+        blobToBase64(this.referenceFile),
+        blobToBase64(this.sampleBlob),
+      ])
+      const result = await this.client.signatureCompare(refBase64, sampleBase64)
       this.callOnResult(result)
     } catch (err) {
       this.handleError(err)

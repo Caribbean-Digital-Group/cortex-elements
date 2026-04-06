@@ -130,15 +130,11 @@ export class ApiClient {
 
   // ── Signature ──────────────────────────────────────────────────────────────
 
-  async signatureCompare(reference: File, sample: File | Blob): Promise<SignatureResult> {
-    const form = new FormData()
-    form.append('reference', reference)
-    // Ensure the blob has a filename so the server can infer MIME type
-    form.append('sample', sample, 'sample.png')
+  async signatureCompare(reference: string, sample: string): Promise<SignatureResult> {
     const res = await withTimeout(`${this.base}/signature/compare`, {
       method: 'POST',
-      headers: this.commonHeaders,
-      body: form,
+      headers: { ...this.commonHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference, sample }),
     })
     return parseResponse<SignatureResult>(res)
   }
