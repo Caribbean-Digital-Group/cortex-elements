@@ -16,6 +16,8 @@ export class SignatureCanvas {
   private readonly ctx: CanvasRenderingContext2D
   private drawing = false
   private hasStrokes = false
+  private lastX = 0
+  private lastY = 0
 
   constructor(private readonly opts: SignatureCanvasOptions) {
     const container = document.createElement('div')
@@ -50,10 +52,12 @@ export class SignatureCanvas {
     // ── Mouse ──────────────────────────────────────────────────────────────
 
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
-      this.beginStroke(e.offsetX, e.offsetY)
+      const [x, y] = this.clientToCanvas(e.clientX, e.clientY)
+      this.beginStroke(x, y)
     })
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      this.continueStroke(e.offsetX, e.offsetY)
+      const [x, y] = this.clientToCanvas(e.clientX, e.clientY)
+      this.continueStroke(x, y)
     })
     canvas.addEventListener('mouseup', () => this.endStroke())
     canvas.addEventListener('mouseleave', () => this.endStroke())
@@ -66,8 +70,8 @@ export class SignatureCanvas {
         e.preventDefault()
         const t = e.touches[0]
         if (!t) return
-        const r = canvas.getBoundingClientRect()
-        this.beginStroke(t.clientX - r.left, t.clientY - r.top)
+        const [x, y] = this.clientToCanvas(t.clientX, t.clientY)
+        this.beginStroke(x, y)
       },
       { passive: false },
     )
@@ -78,8 +82,8 @@ export class SignatureCanvas {
         e.preventDefault()
         const t = e.touches[0]
         if (!t) return
-        const r = canvas.getBoundingClientRect()
-        this.continueStroke(t.clientX - r.left, t.clientY - r.top)
+        const [x, y] = this.clientToCanvas(t.clientX, t.clientY)
+        this.continueStroke(x, y)
       },
       { passive: false },
     )
@@ -99,16 +103,27 @@ export class SignatureCanvas {
     return btn
   }
 
+  private clientToCanvas(clientX: number, clientY: number): [number, number] {
+    const r = this.canvas.getBoundingClientRect()
+    const scaleX = this.canvas.width / r.width
+    const scaleY = this.canvas.height / r.height
+    return [(clientX - r.left) * scaleX, (clientY - r.top) * scaleY]
+  }
+
   private beginStroke(x: number, y: number): void {
     this.drawing = true
-    this.ctx.beginPath()
-    this.ctx.moveTo(x, y)
+    this.lastX = x
+    this.lastY = y
   }
 
   private continueStroke(x: number, y: number): void {
     if (!this.drawing) return
+    this.ctx.beginPath()
+    this.ctx.moveTo(this.lastX, this.lastY)
     this.ctx.lineTo(x, y)
     this.ctx.stroke()
+    this.lastX = x
+    this.lastY = y
     this.hasStrokes = true
   }
 
