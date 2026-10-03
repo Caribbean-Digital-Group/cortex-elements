@@ -11,14 +11,18 @@ import { CortexOcr } from './elements/cortex-ocr'
 import { CortexIdentity } from './elements/cortex-identity'
 import { CortexSignature } from './elements/cortex-signature'
 
-if (!customElements.get('cortex-ocr')) {
-  customElements.define('cortex-ocr', CortexOcr)
+export const version = '2.0.0'
+
+const ELEMENTS: Array<[string, CustomElementConstructor]> = [
+  ['cortex-ocr', CortexOcr],
+  ['cortex-identity', CortexIdentity],
+  ['cortex-signature', CortexSignature],
+]
+
+for (const [tag, ctor] of ELEMENTS) {
+  if (!customElements.get(tag)) customElements.define(tag, ctor)
 }
 
-if (!customElements.get('cortex-identity')) {
-  customElements.define('cortex-identity', CortexIdentity)
-}
-
-if (!customElements.get('cortex-signature')) {
-  customElements.define('cortex-signature', CortexSignature)
-}
+export type { OcrResult, DocumentType, OcrEngine } from './types/ocr'
+export type { IdentityResult } from './types/identity'
+export type { SignatureResult } from './types/signature'

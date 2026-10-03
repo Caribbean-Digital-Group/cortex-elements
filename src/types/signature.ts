@@ -1,5 +1,7 @@
 export interface SignatureResult {
   authentic: boolean
   confidence: number
-  match_score: number
+  similarity: number
+  threshold: number
+  scores: { hog: number; ssim: number; projection: number; aspect: number }
 }

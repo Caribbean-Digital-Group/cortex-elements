@@ -47,7 +47,7 @@ La API key que el cliente pasa en el atributo `api-key` es un token generado y g
 | Estilos | CSS Variables + Shadow DOM | Aislamiento de estilos, personalizable por el cliente |
 | Build | Vite (library mode, formato IIFE) | Salida en un solo archivo sin dependencias externas |
 | Linting | ESLint + Prettier | Consistencia de código |
-| Testing | Vitest + @web/test-runner | Unit tests por component |
+| Testing | Vitest + happy-dom | Unit tests en `tests/` |
 
 > **Sin frameworks de UI.** Los custom elements son vanilla TS + DOM API. No se usa Vue, React ni Lit para mantener el bundle mínimo y la compatibilidad universal.
 
@@ -98,182 +98,76 @@ cortex-elements/
 
 ## Contrato de API con el backend (`cortex`)
 
-La URL base del backend se configura en `src/core/api-client.ts` y puede sobreescribirse con el atributo `api-url` en cada element (útil en dev).
+La URL base se configura en `src/core/api-client.ts` (`DEFAULT_API_URL`) y puede sobreescribirse con `api-url` (HTTPS o localhost).
+Todas las llamadas son `POST` JSON con `Authorization: Bearer <api-key>`. Los archivos viajan en base64;
+las imágenes se optimizan en el navegador (`src/core/image.ts`: ≤2000 px, JPEG, EXIF corregido) antes de enviarse.
 
-### Endpoints por element
+| Element | Endpoint | Payload |
+|---|---|---|
+| `cortex-ocr` | `/ocr/extract` | `{ file_base64, document_type: "auto"\|"ine"\|"curp"\|"cfdi"\|"csf", engine: "auto"\|"mistral"\|"glm" }` |
+| `cortex-identity` | `/face/verify` | `{ document_image, selfie_image, check_liveness, threshold, extract_document }` |
+| `cortex-signature` | `/signature/compare` | `{ reference, sample, threshold }` |
 
-#### `cortex-ocr` → `/ocr/*`
+Los tipos de respuesta viven en `src/types/` y reflejan exactamente el backend (ver `cortex/CLAUDE.md`).
 
-| Método | Endpoint | Payload | Cuándo usarlo |
-|---|---|---|---|
-| POST | `/ocr/document` | `multipart/form-data` con campo `file` | Upload de archivo (imagen o PDF) |
-| POST | `/ocr/document/base64` | `{ "image": "base64string" }` | Captura de cámara |
-| POST | `/ocr/image` | `multipart/form-data` con campo `file` | Imagen suelta sin estructura de documento |
-| POST | `/ocr/image/base64` | `{ "image": "base64string" }` | Imagen suelta vía base64 |
+**Errores:** el backend responde `{ detail, code }`. `ApiClient` los convierte en `CortexApiError(code, message, status)`
+y el element emite `cortex:error` con `{ code, message }`. Códigos útiles para el integrador: `INVALID_API_KEY`,
+`ORIGIN_NOT_ALLOWED`, `MONTHLY_QUOTA_EXCEEDED`, `RATE_LIMITED`, `FACE_NOT_DETECTED`, `UNSUPPORTED_DOCUMENT`,
+`TIMEOUT`, `NETWORK_ERROR`. Ante `503` con `Retry-After` ≤ 10 s el cliente reintenta una vez.
 
-**Respuesta esperada:**
-```json
-{
-  "document_type": "INE",
-  "name": "JUAN PÉREZ LÓPEZ",
-  "curp": "PELJ800101HDFRNN09",
-  "folio": "0123456789",
-  "validity": "2026-12-31",
-  "address": "CALLE EJEMPLO 123, CDMX"
-}
-```
-
-#### `cortex-identity` → `/face/*`
-
-| Método | Endpoint | Payload | Cuándo usarlo |
-|---|---|---|---|
-| POST | `/face/compare/url` | `{ "url1": string, "url2": string }` | Comparar dos fotos por URL pública |
-| POST | `/face/compare/base64` | `{ "image1": string, "image2": string }` | Comparar foto del ID vs captura de cámara |
-
-**Respuesta esperada:**
-```json
-{
-  "verified": true,
-  "similarity": 0.924,
-  "liveness": true,
-  "face_detected": true
-}
-```
-
-#### `cortex-signature` → `/signature/*`
-
-| Método | Endpoint | Payload | Cuándo usarlo |
-|---|---|---|---|
-| POST | `/signature/compare` | `multipart/form-data` con `reference` y `sample` | Comparar dos archivos de firma |
-
-**Respuesta esperada:**
-```json
-{
-  "authentic": true,
-  "confidence": 0.881,
-  "match_score": 0.91
-}
-```
-
-### Autenticación
-
-Todos los endpoints requieren el header:
-```
-Authorization: Bearer <api-key>
-```
-
-El valor de `api-key` proviene del atributo del custom element y es un token generado en `cortex-verify`.
+**Seguridad del api-key:** el token vive en el HTML del cliente, así que es visible. La protección es la lista
+`allowed_origins` del token (configurable en el dashboard): el backend rechaza orígenes no autorizados.
 
 ---
 
 ## Especificación de cada custom element
 
+Atributos comunes: `api-key` (requerido), `api-url`, `theme` (`dark` | `light`), `show-result` (`true` | `false`).
+Eventos comunes: `cortex:result`, `cortex:error` (`{ code, message }`), `cortex:loading` (`{ loading }`).
+Callback: propiedad JS `element.onResult = (data) => {}` (nunca se evalúa el atributo `on-result`).
+Cambiar un atributo de configuración re-renderiza el element. `element.reset()` vuelve al estado inicial.
+
 ### `<cortex-ocr />`
 
-**Propósito:** Permitir al usuario cargar o fotografiar un documento. Extrae campos estructurados vía OCR.
+| Atributo | Default | Descripción |
+|---|---|---|
+| `document-type` | `auto` | `auto`, `ine`, `curp`, `cfdi`, `csf` |
+| `mode` | `both` | `upload`, `camera` (trasera, con marco de credencial) o `both` |
+| `sides` | `front` | Solo INE: `both` pide anverso y reverso y los une en una imagen (una sola llamada de OCR) |
+| `engine` | `auto` | `auto` (Mistral con respaldo GLM), `mistral` o `glm` |
+| `accept` | según tipo | `cfdi`/`auto` aceptan también XML |
 
-**Atributos:**
-
-| Atributo | Tipo | Requerido | Default | Descripción |
-|---|---|---|---|---|
-| `api-key` | `string` | ✅ | — | Token de API de Cortex |
-| `api-url` | `string` | — | `https://api.cortexverify.com` | Base URL del backend (útil en dev) |
-| `accept` | `string` | — | `image/*,application/pdf` | MIME types aceptados |
-| `lang` | `string` | — | `es` | Idioma del output JSON |
-| `mode` | `'upload' \| 'camera' \| 'both'` | — | `both` | Modo de captura disponible |
-| `on-result` | `function` | — | — | Callback con el JSON extraído |
-
-**Eventos DOM emitidos:**
-- `cortex:result` — detalle: el JSON de extracción
-- `cortex:error` — detalle: `{ code, message }`
-- `cortex:loading` — detalle: `{ loading: boolean }`
-
-**Flujo interno:**
-1. Renderiza dropzone + botón de cámara según `mode`
-2. Usuario sube archivo o captura foto
-3. Si es archivo → `POST /ocr/document` (multipart)
-4. Si es captura → convierte a base64 → `POST /ocr/document/base64`
-5. Emite `cortex:result` y llama `on-result` con el JSON
-
----
+Flujo: captura → `prepareUpload`/`stitchVertical` → `/ocr/extract` → `cortex:result` + panel con campos clave, validaciones y advertencias.
 
 ### `<cortex-identity />`
 
-**Propósito:** Verificación biométrica. Compara la foto de una identificación oficial contra una captura facial en tiempo real.
+| Atributo | Default | Descripción |
+|---|---|---|
+| `liveness` | `true` | Prueba de vida anti-spoofing en el servidor |
+| `threshold` | — | Similitud mínima adicional (0–1); por defecto decide el modelo |
+| `extract-document` | `false` | Además extrae los datos de la INE en la misma llamada |
+| `mode` | `both` | Captura de la identificación |
+| `selfie-upload` | `false` | Permitir subir la selfie como archivo (por defecto solo cámara frontal) |
 
-**Atributos:**
-
-| Atributo | Tipo | Requerido | Default | Descripción |
-|---|---|---|---|---|
-| `api-key` | `string` | ✅ | — | Token de API de Cortex |
-| `api-url` | `string` | — | `https://api.cortexverify.com` | Base URL del backend |
-| `liveness` | `boolean` | — | `true` | Activa detección anti-spoof |
-| `threshold` | `number` | — | `0.75` | Score mínimo de similitud para considerar verificado |
-| `on-result` | `function` | — | — | Callback con el resultado de verificación |
-
-**Eventos DOM emitidos:**
-- `cortex:result` — detalle: `{ verified, similarity, liveness, face_detected }`
-- `cortex:error`
-- `cortex:loading`
-
-**Flujo interno:**
-1. Paso 1 — usuario sube o fotografía su identificación oficial
-2. Paso 2 — activa cámara para captura facial en vivo
-3. Convierte ambas imágenes a base64
-4. `POST /face/compare/base64` con `image1` (ID) e `image2` (selfie)
-5. Evalúa si `similarity >= threshold` y emite resultado
-
----
+Flujo: paso 1 identificación → paso 2 selfie (óvalo guía, vista espejo) → `/face/verify` → resultado.
 
 ### `<cortex-signature />`
 
-**Propósito:** Comparar una firma de referencia (upload) contra una muestra (upload o canvas interactivo).
+| Atributo | Default | Descripción |
+|---|---|---|
+| `mode` | `both` | Muestra por `upload`, `canvas` o `both` |
+| `threshold` | servidor (0.80) | Similitud mínima |
 
-**Atributos:**
-
-| Atributo | Tipo | Requerido | Default | Descripción |
-|---|---|---|---|---|
-| `api-key` | `string` | ✅ | — | Token de API de Cortex |
-| `api-url` | `string` | — | `https://api.cortexverify.com` | Base URL del backend |
-| `mode` | `'upload' \| 'canvas' \| 'both'` | — | `both` | Cómo se captura la muestra |
-| `accept` | `string` | — | `image/*,application/pdf` | Tipos aceptados para upload |
-| `on-result` | `function` | — | — | Callback con el resultado de comparación |
-
-**Eventos DOM emitidos:**
-- `cortex:result` — detalle: `{ authentic, confidence, match_score }`
-- `cortex:error`
-- `cortex:loading`
-
-**Flujo interno:**
-1. Panel izquierdo — sube firma de referencia
-2. Panel derecho — sube muestra o dibuja en canvas
-3. Si canvas → exporta como PNG blob
-4. `POST /signature/compare` (multipart) con `reference` y `sample`
-5. Emite resultado
+Flujo: referencia (upload) + muestra (upload o canvas con Pointer Events, exporta al terminar cada trazo) → `/signature/compare`.
 
 ---
 
 ## Clase base `BaseElement`
 
-Todos los elements extienden `BaseElement` que provee:
-
-```ts
-abstract class BaseElement extends HTMLElement {
-  protected apiKey: string
-  protected apiUrl: string
-  protected loading: boolean
-
-  // Ciclo de vida
-  connectedCallback(): void        // lee atributos, renderiza shadow DOM
-  attributeChangedCallback(): void
-
-  // Helpers
-  protected emit(event: string, detail: unknown): void
-  protected setLoading(loading: boolean): void
-  protected handleError(error: unknown): void
-  protected callOnResult(result: unknown): void
-}
-```
+`src/core/base-element.ts` monta el shadow DOM común (`[data-error]`, `[data-loading]`, `[data-body]`, `[data-result]`)
+y llama `render(body)` del element. Helpers: `emit`, `setLoading(loading, message)`, `handleError` (solo `textContent`),
+`requireClient`, `showResultPanel`, `callOnResult`, `reset`. Los subcomponentes de UI viven en `src/ui/`
+(`capture-slot`, `file-dropzone`, `camera-capture`, `signature-canvas`, `result-panel`, `labels`).
 
 ---
 
@@ -299,18 +193,11 @@ El Shadow DOM usa estas variables — el cliente no puede romper los estilos int
 
 El dashboard usa los elements de dos formas:
 
-### 1. Demos en vivo en `/elements`
+### 1. Playground en `/dashboard/elements`
 
-El panel `ElementsPanel.vue` incrusta los web components reales en un iframe sandbox para las demos interactivas. En dev apunta al archivo local:
-
-```ts
-// cortex-verify: src/composables/useElementsScript.ts
-const ELEMENTS_URL = import.meta.env.DEV
-  ? '/elements/elements.js'          // servido desde public/
-  : 'https://cdn.cortexverify.com/elements.js'
-```
-
-El build de `cortex-elements` en modo `--watch` deposita `dist/elements.js` en `cortex-verify/public/elements/elements.js`.
+`ElementsPanel.vue` carga `elements.js` con `useElementsScript.ts` desde `VITE_ELEMENTS_URL`
+(dev: `http://localhost:5174/elements.js`, servido por `npm run demo`; prod: CDN) y monta el element
+real con la API key que el usuario pega (solo en `sessionStorage`).
 
 ### 2. Tipos compartidos (opcional)
 
@@ -337,18 +224,15 @@ npm run build
 # Servir demos locales en localhost:5174
 npm run demo
 
-# Tests
+# Tests (Vitest + happy-dom)
 npm run test
-
-# Lint
-npm run lint
 ```
 
 ### Workflow recomendado en dev
 
 ```bash
-# Terminal 1 — reconstruye elements.js
-cd cortex-elements && npm run dev
+# Terminal 1 — construye y sirve elements.js en :5174 (demos + playground del dashboard)
+cd cortex-elements && npm run demo
 
 # Terminal 2 — dashboard (consume el elements.js generado)
 cd cortex-verify && npm run dev
@@ -386,6 +270,6 @@ export default defineConfig({
 })
 ```
 
-**Artifact de salida:** `dist/elements.js` (~30-60 KB gzip estimado sin imágenes)
+**Artifact de salida:** `dist/elements.js` (~13 KB gzip)
 
 **Deploy a CDN:** El pipeline de CI sube `dist/elements.js` a `cdn.cortexverify.com` en cada merge a `main`.

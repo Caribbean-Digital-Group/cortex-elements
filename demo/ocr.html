@@ -9,6 +9,7 @@
     <style>
       .model-row {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 0.625rem;
         margin-top: 0.75rem;
@@ -19,7 +20,7 @@
         white-space: nowrap;
         flex-shrink: 0;
       }
-      .model-row input {
+      .model-row select {
         flex: 1;
         background: #0f172a;
         border: 1px solid rgba(255,255,255,0.08);
@@ -31,7 +32,7 @@
         min-width: 0;
         transition: border-color 0.15s;
       }
-      .model-row input:focus { outline: none; border-color: #06b6d4; }
+      .model-row select:focus { outline: none; border-color: #06b6d4; }
     </style>
   </head>
   <body>
@@ -41,7 +42,7 @@
     </nav>
 
     <h1 class="demo-title">cortex-ocr</h1>
-    <p class="demo-subtitle">Extrae datos estructurados de documentos oficiales (INE, pasaporte, CURP, RFC…)</p>
+    <p class="demo-subtitle">Extrae y valida datos de INE, CURP, CFDI y Constancia de Situación Fiscal</p>
 
     <!-- Config card -->
     <div class="token-card">
@@ -50,7 +51,7 @@
         <textarea
           id="token-input"
           rows="3"
-          placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          placeholder="ck_live_..."
           spellcheck="false"
           autocomplete="off"
         ></textarea>
@@ -68,20 +69,32 @@
         />
       </div>
 
-      <!-- Model selector -->
+      <!-- Document options -->
       <div class="model-row">
-        <label for="model-input">Modelo OCR</label>
-        <input
-          id="model-input"
-          list="model-list"
-          placeholder="mistral-ocr-latest"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <datalist id="model-list">
-          <option value="mistral-ocr-latest"></option>
-          <option value="glm-ocr"></option>
-        </datalist>
+        <label for="doc-type">Documento</label>
+        <select id="doc-type">
+          <option value="auto">Auto-detectar</option>
+          <option value="ine">INE</option>
+          <option value="curp">CURP</option>
+          <option value="cfdi">CFDI (imagen, PDF o XML)</option>
+          <option value="csf">Constancia de Situación Fiscal</option>
+        </select>
+        <label for="sides">Lados (INE)</label>
+        <select id="sides">
+          <option value="front">Solo anverso</option>
+          <option value="both">Anverso y reverso</option>
+        </select>
+        <label for="engine">Motor</label>
+        <select id="engine">
+          <option value="auto">Auto (Mistral → GLM)</option>
+          <option value="mistral">Mistral OCR</option>
+          <option value="glm">GLM-OCR</option>
+        </select>
+        <label for="theme">Tema</label>
+        <select id="theme">
+          <option value="dark">Oscuro</option>
+          <option value="light">Claro</option>
+        </select>
       </div>
 
       <p id="token-status" class="token-card__status"></p>
@@ -89,7 +102,7 @@
 
     <!-- Element — shown only after token is applied -->
     <div id="element-wrapper" class="element-wrapper">
-      <cortex-ocr id="ocr" mode="both" accept="image/*,application/pdf"></cortex-ocr>
+      <cortex-ocr id="ocr" mode="both"></cortex-ocr>
     </div>
 
     <p class="result-label">Resultado</p>
@@ -98,36 +111,26 @@
     <script type="module">
       import { initDemo } from '/demo.js'
 
-      const KEY_MODEL = 'cortex_demo_ocr_model'
-      const output    = document.getElementById('output')
-      const modelInput = document.getElementById('model-input')
+      const output = document.getElementById('output')
       const el = document.getElementById('ocr')
+      const options = ['doc-type', 'sides', 'engine', 'theme']
+      const attrs = { 'doc-type': 'document-type', sides: 'sides', engine: 'engine', theme: 'theme' }
 
-      // Restore saved model
-      const savedModel = localStorage.getItem(KEY_MODEL)
-      if (savedModel) modelInput.value = savedModel
-
-      // Apply model to element whenever it changes
-      function applyModel() {
-        const model = modelInput.value.trim() || 'mistral-ocr-latest'
-        localStorage.setItem(KEY_MODEL, model)
-        el.setAttribute('model', model)
+      // Restaurar y aplicar opciones guardadas
+      for (const id of options) {
+        const input = document.getElementById(id)
+        const saved = localStorage.getItem(`cortex_demo_ocr_${id}`)
+        if (saved) input.value = saved
+        el.setAttribute(attrs[id], input.value)
+        input.addEventListener('change', () => {
+          localStorage.setItem(`cortex_demo_ocr_${id}`, input.value)
+          el.setAttribute(attrs[id], input.value)
+        })
       }
-
-      modelInput.addEventListener('change', applyModel)
-      modelInput.addEventListener('input', () => {
-        // Only apply on explicit selection from datalist
-        if ([...document.getElementById('model-list').options].some(o => o.value === modelInput.value)) {
-          applyModel()
-        }
-      })
 
       initDemo({
         elementId: 'ocr',
         onApply(el) {
-          // Apply saved or entered model on init
-          applyModel()
-
           el.onResult = (data) => {
             output.textContent = JSON.stringify(data, null, 2)
           }

@@ -1,38 +1,24 @@
 import { BaseElement } from '../core/base-element'
-import { FileDropzone } from '../ui/file-dropzone'
-import { CameraCapture } from '../ui/camera-capture'
-import { SHARED_CSS } from '../styles/shared'
+import { prepareUpload } from '../core/image'
+import { CaptureSlot, type CaptureMode } from '../ui/capture-slot'
+import { createResultPanel } from '../ui/result-panel'
+import { WARNING_LABELS, formatValue } from '../ui/labels'
+import type { IdentityResult } from '../types/identity'
+import type { OcrEngine } from '../types/ocr'
 
 /**
- * Reads a File and returns its content as a pure base64 string (no data: URI prefix).
- */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result
-      if (typeof result !== 'string') {
-        reject(new Error('Error al leer el archivo'))
-        return
-      }
-      const base64 = result.split(',')[1]
-      if (base64) resolve(base64)
-      else reject(new Error('Formato de archivo no reconocido'))
-    }
-    reader.onerror = () => reject(new Error('Error al leer el archivo'))
-    reader.readAsDataURL(file)
-  })
-}
-
-/**
- * <cortex-identity> — biometric identity verification.
- * Compares a photo ID against a live selfie.
+ * <cortex-identity> — verificación biométrica: identificación oficial vs selfie.
  *
  * Attributes:
- *   api-key    (required) Cortex API token
- *   api-url    Override backend URL (dev only)
- *   liveness   "true" | "false"  Enable anti-spoofing  (default: "true")
- *   threshold  Number 0–1        Minimum similarity score  (default: "0.75")
+ *   api-key           (required) Cortex API token
+ *   api-url           Override backend URL (dev only)
+ *   liveness          "true" | "false"  Prueba de vida anti-spoofing  (default: "true")
+ *   threshold         0–1  Similitud mínima adicional (default: decisión del modelo)
+ *   extract-document  "true" | "false"  Extraer también los datos de la INE  (default: "false")
+ *   mode              "upload" | "camera" | "both" — captura de la identificación  (default: "both")
+ *   selfie-upload     "true" | "false"  Permitir subir la selfie como archivo  (default: "false")
+ *   engine            "auto" | "mistral" | "glm"  Motor de OCR para extract-document  (default: "auto")
+ *   theme, show-result
  *
  * JS property:
  *   onResult   (data: IdentityResult) => void
@@ -43,119 +29,125 @@ function fileToBase64(file: File): Promise<string> {
  *   cortex:loading  detail: { loading: boolean }
  *
  * Usage:
- *   <cortex-identity api-key="ck_live_..." threshold="0.8"></cortex-identity>
+ *   <cortex-identity api-key="ck_live_..." extract-document="true"></cortex-identity>
  *   document.querySelector('cortex-identity').onResult = (r) => console.log(r.verified)
  */
 export class CortexIdentity extends BaseElement {
-  private idBase64: string | null = null
-  private selfieBase64: string | null = null
-  private camera: CameraCapture | null = null
+  private idBlob: Blob | null = null
+  private selfieBlob: Blob | null = null
+  private slots: CaptureSlot[] = []
 
   static override get observedAttributes(): string[] {
-    return [...super.observedAttributes, 'liveness', 'threshold']
+    return [...super.observedAttributes, 'liveness', 'threshold', 'extract-document', 'mode', 'selfie-upload', 'engine']
   }
 
-  private get threshold(): number {
-    const raw = parseFloat(this.getAttribute('threshold') ?? '0.75')
-    return Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0.75
+  private get threshold(): number | null {
+    const raw = this.getAttribute('threshold')
+    if (raw === null) return null
+    const value = parseFloat(raw)
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null
   }
 
-  protected override render(): void {
-    const root = this.shadowRoot!
+  private get idMode(): CaptureMode {
+    const m = this.getAttribute('mode')
+    return m === 'upload' || m === 'camera' || m === 'both' ? m : 'both'
+  }
 
-    root.innerHTML = `
-      <style>${SHARED_CSS}</style>
-      <div class="cortex-element">
-        <div data-error class="error-msg" hidden></div>
-        <div data-loading class="loading-overlay" hidden>
-          <div class="spinner"></div>
-          <p>Verificando identidad...</p>
-        </div>
-        <div class="steps">
+  private get ocrEngine(): OcrEngine {
+    const value = this.getAttribute('engine')
+    return value === 'mistral' || value === 'glm' ? value : 'auto'
+  }
 
-          <div class="step" data-step="1">
-            <div class="step__header">
-              <div class="step__number" aria-hidden="true">1</div>
-              <span class="step__title">Fotografía o sube tu identificación oficial</span>
-            </div>
-            <div data-id-zone></div>
-          </div>
+  private flag(name: string, fallback: boolean): boolean {
+    const value = this.getAttribute(name)
+    return value === null ? fallback : value !== 'false'
+  }
 
-          <div class="step" data-step="2" hidden>
-            <div class="step__header">
-              <div class="step__number" aria-hidden="true">2</div>
-              <span class="step__title">Tómate una selfie</span>
-            </div>
-            <div data-selfie-zone></div>
-          </div>
+  protected override render(body: HTMLElement): void {
+    this.idBlob = null
+    this.selfieBlob = null
 
-          <div class="actions" data-submit-section hidden>
-            <button type="button" class="btn btn--primary" data-submit>
-              Verificar identidad
-            </button>
-          </div>
+    const steps = document.createElement('div')
+    steps.className = 'steps'
 
-        </div>
-      </div>
-    `
-
-    // Step 1 — ID upload
-    const idDropzone = new FileDropzone({
+    const idSlot = new CaptureSlot({
+      title: '1. Identificación oficial (INE)',
+      mode: this.idMode,
       accept: 'image/*',
-      onFile: (file) => void this.handleIdFile(file),
+      hint: 'Foto clara del frente de tu INE · JPG o PNG',
+      facing: 'environment',
+      guide: 'document',
+      onReady: (blob) => {
+        this.idBlob = blob
+        selfieStep.hidden = false
+        selfieStep.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        this.updateSubmit()
+      },
       onError: (msg) => this.handleError({ code: 'FILE_VALIDATION', message: msg }),
     })
-    root.querySelector('[data-id-zone]')!.appendChild(idDropzone.element)
 
-    // Step 2 — selfie via camera
-    this.camera = new CameraCapture({
-      onCapture: (base64) => this.handleSelfie(base64),
+    const selfieSlot = new CaptureSlot({
+      title: '2. Selfie',
+      mode: this.flag('selfie-upload', false) ? 'both' : 'camera',
+      accept: 'image/*',
+      facing: 'user',
+      guide: 'face',
+      onReady: (blob) => {
+        this.selfieBlob = blob
+        this.updateSubmit()
+      },
       onError: (msg) => this.handleError({ code: 'CAMERA_ERROR', message: msg }),
     })
-    root.querySelector('[data-selfie-zone]')!.appendChild(this.camera.element)
+    const selfieStep = selfieSlot.element
+    selfieStep.hidden = true
 
-    root.querySelector('[data-submit]')?.addEventListener('click', () => void this.submit())
+    this.slots = [idSlot, selfieSlot]
+    steps.append(idSlot.element, selfieStep)
+
+    const actions = document.createElement('div')
+    actions.className = 'actions'
+    const submit = document.createElement('button')
+    submit.type = 'button'
+    submit.className = 'btn btn--primary'
+    submit.dataset.submit = ''
+    submit.textContent = 'Verificar identidad'
+    submit.disabled = true
+    submit.addEventListener('click', () => void this.submit())
+    actions.append(submit)
+
+    const privacy = document.createElement('p')
+    privacy.className = 'privacy-note'
+    privacy.textContent = 'Tus imágenes se procesan de forma segura y no se almacenan.'
+
+    body.append(steps, actions, privacy)
   }
 
-  private async handleIdFile(file: File): Promise<void> {
-    try {
-      this.idBase64 = await fileToBase64(file)
-      // Reveal step 2
-      const step2 = this.shadowRoot?.querySelector<HTMLElement>('[data-step="2"]')
-      if (step2) step2.hidden = false
-      step2?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    } catch (err) {
-      this.handleError(err)
-    }
-  }
-
-  private handleSelfie(base64: string): void {
-    this.selfieBase64 = base64
-    // Reveal submit button
-    const submitSection = this.shadowRoot?.querySelector<HTMLElement>('[data-submit-section]')
-    if (submitSection) submitSection.hidden = false
+  private updateSubmit(): void {
+    this.hideError()
+    const submit = this.shadowRoot?.querySelector<HTMLButtonElement>('[data-submit]')
+    if (submit) submit.disabled = !(this.idBlob && this.selfieBlob)
   }
 
   private async submit(): Promise<void> {
-    if (!this.client) {
-      this.handleError({ code: 'INVALID_API_KEY', message: 'Configura un api-key válido.' })
+    const client = this.requireClient()
+    if (!client || this.loading) return
+    if (!this.idBlob || !this.selfieBlob) {
+      this.handleError({ code: 'MISSING_CAPTURE', message: 'Captura tu identificación y tu selfie.' })
       return
     }
-    if (!this.idBase64) {
-      this.handleError({ code: 'MISSING_ID', message: 'Por favor sube o fotografía tu identificación (Paso 1).' })
-      return
-    }
-    if (!this.selfieBase64) {
-      this.handleError({ code: 'MISSING_SELFIE', message: 'Por favor tómate una selfie (Paso 2).' })
-      return
-    }
+
     this.hideError()
-    this.setLoading(true)
+    this.setLoading(true, 'Verificando identidad...')
     try {
-      const raw = await this.client.faceCompareBase64(this.idBase64, this.selfieBase64)
-      // Apply threshold on the client side for consistent UX
-      const result = { ...raw, verified: raw.similarity >= this.threshold && raw.face_detected }
+      const [idImage, selfie] = await Promise.all([prepareUpload(this.idBlob), prepareUpload(this.selfieBlob)])
+      const result = await client.verifyIdentity(idImage, selfie, {
+        checkLiveness: this.flag('liveness', true),
+        threshold: this.threshold,
+        extractDocument: this.flag('extract-document', false),
+        ocrEngine: this.ocrEngine,
+      })
       this.callOnResult(result)
+      this.showResultPanel(this.buildPanel(result))
     } catch (err) {
       this.handleError(err)
     } finally {
@@ -163,7 +155,37 @@ export class CortexIdentity extends BaseElement {
     }
   }
 
+  private buildPanel(result: IdentityResult): HTMLElement {
+    const checks = [
+      { label: 'El rostro coincide con la identificación', ok: result.face_match },
+      { label: 'Prueba de vida', ok: result.liveness },
+    ]
+    const rows: Array<[string, string]> = []
+    const doc = result.document
+    if (doc) {
+      const name = formatValue(doc.derived['nombre_completo'])
+      const curp = formatValue(doc.fields['curp'])
+      if (name) rows.push(['Nombre', name])
+      if (curp) rows.push(['CURP', curp])
+      checks.push({ label: 'INE vigente', ok: doc.validations['vigente'] ?? null })
+    }
+
+    return createResultPanel({
+      status: result.verified ? 'success' : 'error',
+      title: result.verified ? 'Identidad verificada' : 'No se pudo verificar la identidad',
+      subtitle: result.verified ? undefined : 'Intenta con una foto más nítida y buena iluminación.',
+      metric: { label: 'Similitud facial', value: result.similarity },
+      rows,
+      checks,
+      warnings: result.warnings
+        .filter((w) => w !== 'LIVENESS_NO_DISPONIBLE' && w !== 'MOTOR_DE_RESPALDO')
+        .map((w) => WARNING_LABELS[w.split(':')[0]!] ?? w),
+      resetLabel: 'Verificar de nuevo',
+      onReset: () => this.reset(),
+    })
+  }
+
   protected override cleanup(): void {
-    this.camera?.stop()
+    this.slots.forEach((s) => s.stop())
   }
 }

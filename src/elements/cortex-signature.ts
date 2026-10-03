@@ -1,19 +1,25 @@
 import { BaseElement } from '../core/base-element'
+import { prepareUpload } from '../core/image'
 import { FileDropzone } from '../ui/file-dropzone'
 import { SignatureCanvas } from '../ui/signature-canvas'
-import { SHARED_CSS } from '../styles/shared'
+import { createResultPanel } from '../ui/result-panel'
+import type { SignatureResult } from '../types/signature'
 
 type SignatureMode = 'upload' | 'canvas' | 'both'
 
+const SIGNATURE_ACCEPT = 'image/*'
+const SIGNATURE_HINT = 'JPG o PNG de la firma sobre fondo claro'
+
 /**
- * <cortex-signature> — signature comparison.
- * Compares a reference signature against an uploaded or hand-drawn sample.
+ * <cortex-signature> — comparación de firmas.
+ * Compara una firma de referencia contra una muestra subida o dibujada.
  *
  * Attributes:
- *   api-key   (required) Cortex API token
- *   api-url   Override backend URL (dev only)
- *   mode      "upload" | "canvas" | "both"  (default: "both")
- *   accept    MIME types for file upload  (default: "image/*,application/pdf")
+ *   api-key    (required) Cortex API token
+ *   api-url    Override backend URL (dev only)
+ *   mode       "upload" | "canvas" | "both" — cómo se captura la muestra  (default: "both")
+ *   threshold  0–1  Similitud mínima para considerarla auténtica  (default del servidor: 0.80)
+ *   theme, show-result
  *
  * JS property:
  *   onResult  (data: SignatureResult) => void
@@ -24,28 +30,16 @@ type SignatureMode = 'upload' | 'canvas' | 'both'
  *   cortex:loading  detail: { loading: boolean }
  *
  * Usage:
- *   <cortex-signature api-key="ck_live_..." mode="both"></cortex-signature>
+ *   <cortex-signature api-key="ck_live_..." mode="canvas"></cortex-signature>
  *   document.querySelector('cortex-signature').onResult = (r) => console.log(r.authentic)
  */
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      // Strip the data URL prefix (e.g. "data:image/png;base64,")
-      resolve(result.split(',')[1] ?? result)
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
-}
-
 export class CortexSignature extends BaseElement {
-  private referenceFile: File | null = null
-  private sampleBlob: File | Blob | null = null
+  private reference: Blob | null = null
+  private sample: Blob | null = null
+  private dropzones: FileDropzone[] = []
 
   static override get observedAttributes(): string[] {
-    return [...super.observedAttributes, 'mode', 'accept']
+    return [...super.observedAttributes, 'mode', 'threshold']
   }
 
   private get mode(): SignatureMode {
@@ -53,119 +47,139 @@ export class CortexSignature extends BaseElement {
     return m === 'upload' || m === 'canvas' || m === 'both' ? m : 'both'
   }
 
-  private get accept(): string {
-    return this.getAttribute('accept') ?? 'image/*,application/pdf'
+  private get threshold(): number | null {
+    const raw = this.getAttribute('threshold')
+    const value = raw === null ? NaN : parseFloat(raw)
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null
   }
 
-  protected override render(): void {
-    const root = this.shadowRoot!
-    const mode = this.mode
-    const showUpload = mode !== 'canvas'
-    const showCanvas = mode !== 'upload'
-    const showSeparator = mode === 'both'
+  protected override render(body: HTMLElement): void {
+    this.reference = null
+    this.sample = null
+    const onError = (msg: string) => this.handleError({ code: 'FILE_VALIDATION', message: msg })
 
-    root.innerHTML = `
-      <style>${SHARED_CSS}</style>
-      <div class="cortex-element">
-        <div data-error class="error-msg" hidden></div>
-        <div data-loading class="loading-overlay" hidden>
-          <div class="spinner"></div>
-          <p>Comparando firmas...</p>
-        </div>
+    const panels = document.createElement('div')
+    panels.className = 'sig-panels'
 
-        <div class="sig-panels">
-          <div class="sig-panel">
-            <p class="sig-panel__title">Firma de referencia</p>
-            <div data-reference></div>
-          </div>
-          <div class="sig-panel">
-            <p class="sig-panel__title">Muestra a comparar</p>
-            <div data-sample></div>
-          </div>
-        </div>
-
-        <div class="actions">
-          <button type="button" class="btn btn--primary" data-submit>
-            Comparar firmas
-          </button>
-        </div>
-      </div>
-    `
-
-    // Left panel — reference (always file upload)
+    const refPanel = this.panel('Firma de referencia')
     const refDropzone = new FileDropzone({
-      accept: this.accept,
+      accept: SIGNATURE_ACCEPT,
+      hint: SIGNATURE_HINT,
       onFile: (file) => {
-        this.referenceFile = file
+        this.reference = file
+        this.updateSubmit()
       },
-      onError: (msg) => this.handleError({ code: 'FILE_VALIDATION', message: msg }),
+      onError,
     })
-    root.querySelector('[data-reference]')!.appendChild(refDropzone.element)
+    refPanel.append(refDropzone.element)
 
-    // Right panel — sample (upload and/or canvas)
-    const sampleContainer = root.querySelector('[data-sample]')!
+    const samplePanel = this.panel('Firma a verificar')
+    this.dropzones = [refDropzone]
 
-    if (showUpload) {
+    if (this.mode !== 'canvas') {
       const sampleDropzone = new FileDropzone({
-        accept: this.accept,
+        accept: SIGNATURE_ACCEPT,
+        hint: SIGNATURE_HINT,
         onFile: (file) => {
-          this.sampleBlob = file
+          this.sample = file
+          this.updateSubmit()
         },
-        onError: (msg) => this.handleError({ code: 'FILE_VALIDATION', message: msg }),
+        onError,
       })
-      sampleContainer.appendChild(sampleDropzone.element)
+      this.dropzones.push(sampleDropzone)
+      samplePanel.append(sampleDropzone.element)
     }
 
-    if (showSeparator) {
+    if (this.mode === 'both') {
       const sep = document.createElement('div')
       sep.className = 'separator'
       const span = document.createElement('span')
       span.textContent = 'o dibuja la firma'
-      sep.appendChild(span)
-      sampleContainer.appendChild(sep)
+      sep.append(span)
+      samplePanel.append(sep)
     }
 
-    if (showCanvas) {
-      const sigCanvas = new SignatureCanvas({
-        onExport: (blob) => {
-          this.sampleBlob = blob
+    if (this.mode !== 'upload') {
+      const canvas = new SignatureCanvas({
+        onChange: (blob) => {
+          this.sample = blob
+          this.updateSubmit()
         },
       })
-      sampleContainer.appendChild(sigCanvas.element)
+      samplePanel.append(canvas.element)
     }
 
-    root.querySelector('[data-submit]')?.addEventListener('click', () => void this.submit())
+    panels.append(refPanel, samplePanel)
+
+    const actions = document.createElement('div')
+    actions.className = 'actions'
+    const submit = document.createElement('button')
+    submit.type = 'button'
+    submit.className = 'btn btn--primary'
+    submit.dataset.submit = ''
+    submit.textContent = 'Comparar firmas'
+    submit.disabled = true
+    submit.addEventListener('click', () => void this.submit())
+    actions.append(submit)
+
+    body.append(panels, actions)
+  }
+
+  private panel(title: string): HTMLElement {
+    const panel = document.createElement('div')
+    panel.className = 'sig-panel'
+    const heading = document.createElement('p')
+    heading.className = 'sig-panel__title'
+    heading.textContent = title
+    panel.append(heading)
+    return panel
+  }
+
+  private updateSubmit(): void {
+    this.hideError()
+    const submit = this.shadowRoot?.querySelector<HTMLButtonElement>('[data-submit]')
+    if (submit) submit.disabled = !(this.reference && this.sample)
   }
 
   private async submit(): Promise<void> {
-    if (!this.client) {
-      this.handleError({ code: 'INVALID_API_KEY', message: 'Configura un api-key válido.' })
+    const client = this.requireClient()
+    if (!client || this.loading) return
+    if (!this.reference || !this.sample) {
+      this.handleError({ code: 'MISSING_CAPTURE', message: 'Agrega la firma de referencia y la firma a verificar.' })
       return
     }
-    if (!this.referenceFile) {
-      this.handleError({ code: 'MISSING_REFERENCE', message: 'Por favor sube la firma de referencia.' })
-      return
-    }
-    if (!this.sampleBlob) {
-      this.handleError({
-        code: 'MISSING_SAMPLE',
-        message: 'Por favor sube o dibuja la firma de muestra.',
-      })
-      return
-    }
+
     this.hideError()
-    this.setLoading(true)
+    this.setLoading(true, 'Comparando firmas...')
     try {
-      const [refBase64, sampleBase64] = await Promise.all([
-        blobToBase64(this.referenceFile),
-        blobToBase64(this.sampleBlob),
-      ])
-      const result = await this.client.signatureCompare(refBase64, sampleBase64)
+      const [ref, sample] = await Promise.all([prepareUpload(this.reference), prepareUpload(this.sample)])
+      const result = await client.signatureCompare(ref, sample, this.threshold)
       this.callOnResult(result)
+      this.showResultPanel(this.buildPanel(result))
     } catch (err) {
       this.handleError(err)
     } finally {
       this.setLoading(false)
     }
+  }
+
+  private buildPanel(result: SignatureResult): HTMLElement {
+    return createResultPanel({
+      status: result.authentic ? 'success' : 'error',
+      title: result.authentic ? 'Las firmas coinciden' : 'Las firmas no coinciden',
+      subtitle: `Umbral de aceptación: ${Math.round(result.threshold * 100)}%`,
+      metric: { label: 'Similitud', value: result.similarity },
+      checks: [
+        { label: 'Forma de los trazos', ok: result.scores.hog >= result.threshold },
+        { label: 'Estructura general', ok: result.scores.ssim >= 0.6 },
+        { label: 'Proporciones', ok: result.scores.aspect >= 0.75 },
+      ],
+      resetLabel: 'Comparar otra firma',
+      onReset: () => this.reset(),
+    })
+  }
+
+  protected override cleanup(): void {
+    this.dropzones.forEach((d) => d.destroy())
   }
 }

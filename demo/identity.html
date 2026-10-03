@@ -23,7 +23,7 @@
         <textarea
           id="token-input"
           rows="3"
-          placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          placeholder="ck_live_..."
           spellcheck="false"
           autocomplete="off"
         ></textarea>
@@ -44,7 +44,7 @@
 
     <!-- Element — shown only after token is applied -->
     <div id="element-wrapper" class="element-wrapper">
-      <cortex-identity id="identity" threshold="0.75" liveness="true"></cortex-identity>
+      <cortex-identity id="identity" liveness="true" extract-document="true"></cortex-identity>
     </div>
 
     <p class="result-label">Resultado</p>

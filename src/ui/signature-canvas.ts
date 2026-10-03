@@ -1,19 +1,24 @@
 interface SignatureCanvasOptions {
-  /** Called with the PNG blob when the user clicks "Usar firma". */
-  onExport: (blob: Blob) => void
+  /** Se llama con el PNG al terminar cada trazo, o con null al limpiar. */
+  onChange: (blob: Blob | null) => void
 }
+
+const LOGICAL_W = 560
+const LOGICAL_H = 180
 
 /**
  * SignatureCanvas — interactive canvas for drawing signatures.
  *
- * - Touch and mouse events supported.
- * - `touch-action: none` set via CSS to prevent scroll interference.
- * - Exported as a PNG Blob (not a data URL) so it can be passed directly to FormData.
+ * - Pointer Events: mouse, touch y stylus con una sola ruta de código.
+ * - Escalado por devicePixelRatio para trazos nítidos en pantallas retina.
+ * - Fondo blanco explícito (el backend también tolera PNG transparente).
+ * - Exporta automáticamente al terminar cada trazo — sin botón "usar firma".
  */
 export class SignatureCanvas {
   readonly element: HTMLElement
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
+  private readonly hint: HTMLElement
   private drawing = false
   private hasStrokes = false
   private lastX = 0
@@ -25,124 +30,96 @@ export class SignatureCanvas {
 
     const canvas = document.createElement('canvas')
     canvas.className = 'sig-canvas__canvas'
-    canvas.width = 560
-    canvas.height = 180
+    const dpr = Math.min(window.devicePixelRatio || 1, 3)
+    canvas.width = LOGICAL_W * dpr
+    canvas.height = LOGICAL_H * dpr
     canvas.setAttribute('role', 'img')
     canvas.setAttribute('aria-label', 'Área de firma')
     this.canvas = canvas
 
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Canvas 2D context not available')
-    ctx.strokeStyle = '#1e293b'
+    ctx.scale(dpr, dpr)
+    ctx.strokeStyle = '#0f172a'
     ctx.lineWidth = 2.5
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     this.ctx = ctx
+    this.paintBackground()
+
+    const hint = document.createElement('p')
+    hint.className = 'sig-canvas__hint'
+    hint.textContent = 'Firma aquí con el mouse o el dedo'
+    this.hint = hint
 
     const controls = document.createElement('div')
     controls.className = 'sig-canvas__controls'
+    const clearBtn = document.createElement('button')
+    clearBtn.type = 'button'
+    clearBtn.className = 'btn btn--ghost'
+    clearBtn.textContent = 'Limpiar'
+    controls.append(clearBtn)
 
-    const clearBtn = this.makeBtn('btn--ghost', 'Limpiar')
-    const useBtn = this.makeBtn('btn--primary', 'Usar firma')
-    controls.append(clearBtn, useBtn)
-
-    container.append(canvas, controls)
+    const wrap = document.createElement('div')
+    wrap.className = 'sig-canvas__wrap'
+    wrap.append(canvas, hint)
+    container.append(wrap, controls)
     this.element = container
 
-    // ── Mouse ──────────────────────────────────────────────────────────────
-
-    canvas.addEventListener('mousedown', (e: MouseEvent) => {
-      const [x, y] = this.clientToCanvas(e.clientX, e.clientY)
-      this.beginStroke(x, y)
+    canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+      e.preventDefault()
+      canvas.setPointerCapture(e.pointerId)
+      const [x, y] = this.toLogical(e)
+      this.drawing = true
+      this.lastX = x
+      this.lastY = y
+      this.hint.hidden = true
     })
-    canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      const [x, y] = this.clientToCanvas(e.clientX, e.clientY)
-      this.continueStroke(x, y)
+    canvas.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!this.drawing) return
+      const [x, y] = this.toLogical(e)
+      this.ctx.beginPath()
+      this.ctx.moveTo(this.lastX, this.lastY)
+      this.ctx.lineTo(x, y)
+      this.ctx.stroke()
+      this.lastX = x
+      this.lastY = y
+      this.hasStrokes = true
     })
-    canvas.addEventListener('mouseup', () => this.endStroke())
-    canvas.addEventListener('mouseleave', () => this.endStroke())
-
-    // ── Touch ──────────────────────────────────────────────────────────────
-
-    canvas.addEventListener(
-      'touchstart',
-      (e: TouchEvent) => {
-        e.preventDefault()
-        const t = e.touches[0]
-        if (!t) return
-        const [x, y] = this.clientToCanvas(t.clientX, t.clientY)
-        this.beginStroke(x, y)
-      },
-      { passive: false },
-    )
-
-    canvas.addEventListener(
-      'touchmove',
-      (e: TouchEvent) => {
-        e.preventDefault()
-        const t = e.touches[0]
-        if (!t) return
-        const [x, y] = this.clientToCanvas(t.clientX, t.clientY)
-        this.continueStroke(x, y)
-      },
-      { passive: false },
-    )
-
-    canvas.addEventListener('touchend', () => this.endStroke())
-    canvas.addEventListener('touchcancel', () => this.endStroke())
+    const end = () => {
+      if (!this.drawing) return
+      this.drawing = false
+      this.export()
+    }
+    canvas.addEventListener('pointerup', end)
+    canvas.addEventListener('pointercancel', end)
 
     clearBtn.addEventListener('click', () => this.clear())
-    useBtn.addEventListener('click', () => this.exportBlob())
   }
 
-  private makeBtn(cls: string, text: string): HTMLButtonElement {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = `btn ${cls}`
-    btn.textContent = text
-    return btn
+  private paintBackground(): void {
+    this.ctx.save()
+    this.ctx.fillStyle = '#ffffff'
+    this.ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H)
+    this.ctx.restore()
   }
 
-  private clientToCanvas(clientX: number, clientY: number): [number, number] {
+  private toLogical(e: PointerEvent): [number, number] {
     const r = this.canvas.getBoundingClientRect()
-    const scaleX = this.canvas.width / r.width
-    const scaleY = this.canvas.height / r.height
-    return [(clientX - r.left) * scaleX, (clientY - r.top) * scaleY]
+    return [((e.clientX - r.left) * LOGICAL_W) / r.width, ((e.clientY - r.top) * LOGICAL_H) / r.height]
   }
 
-  private beginStroke(x: number, y: number): void {
-    this.drawing = true
-    this.lastX = x
-    this.lastY = y
-  }
-
-  private continueStroke(x: number, y: number): void {
-    if (!this.drawing) return
-    this.ctx.beginPath()
-    this.ctx.moveTo(this.lastX, this.lastY)
-    this.ctx.lineTo(x, y)
-    this.ctx.stroke()
-    this.lastX = x
-    this.lastY = y
-    this.hasStrokes = true
-  }
-
-  private endStroke(): void {
-    this.drawing = false
+  private export(): void {
+    if (!this.hasStrokes) return
+    this.canvas.toBlob((blob) => {
+      if (blob) this.opts.onChange(blob)
+    }, 'image/png')
   }
 
   clear(): void {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    this.paintBackground()
     this.hasStrokes = false
-  }
-
-  private exportBlob(): void {
-    if (!this.hasStrokes) return
-    this.canvas.toBlob(
-      (blob) => {
-        if (blob) this.opts.onExport(blob)
-      },
-      'image/png',
-    )
+    this.hint.hidden = false
+    this.opts.onChange(null)
   }
 }

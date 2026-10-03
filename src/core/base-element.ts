@@ -1,8 +1,15 @@
 import { ApiClient, DEFAULT_API_URL } from './api-client'
 import { validateApiKey, validateApiUrl } from './validators'
+import { SHARED_CSS } from '../styles/shared'
 
 /**
  * BaseElement — abstract base for all Cortex custom elements.
+ *
+ * Common attributes:
+ *   api-key      (required) Cortex API token
+ *   api-url      Override backend URL (HTTPS, or localhost in dev)
+ *   theme        "dark" (default) | "light"
+ *   show-result  "true" (default) | "false" — show the built-in result summary
  *
  * Security notes:
  * - api-key is never written to the DOM, logged, or included in error messages.
@@ -15,6 +22,7 @@ export abstract class BaseElement extends HTMLElement {
   protected apiUrl = DEFAULT_API_URL
   protected loading = false
   protected client: ApiClient | null = null
+  private rendered = false
 
   static get observedAttributes(): string[] {
     return ['api-key', 'api-url']
@@ -33,36 +41,67 @@ export abstract class BaseElement extends HTMLElement {
     if (url && validateApiUrl(url)) this.apiUrl = url
 
     this.rebuildClient()
-    this.render()
+    this.mount()
+    this.rendered = true
   }
 
   disconnectedCallback(): void {
     this.cleanup()
   }
 
-  attributeChangedCallback(name: string, _old: string | null, value: string | null): void {
+  attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     if (name === 'api-key' && value !== null) {
       this.apiKey = value
       this.rebuildClient()
+      return
     }
-    if (name === 'api-url' && value && validateApiUrl(value)) {
-      this.apiUrl = value
+    if (name === 'api-url') {
+      if (value && validateApiUrl(value)) this.apiUrl = value
+      else if (value === null) this.apiUrl = DEFAULT_API_URL
       this.rebuildClient()
+      return
     }
+    // Atributos de configuración (mode, document-type…): re-renderizar si ya está montado
+    if (this.rendered && old !== value) this.reset()
   }
 
   private rebuildClient(): void {
-    this.client = validateApiKey(this.apiKey)
-      ? new ApiClient(this.apiKey, this.apiUrl)
-      : null
+    this.client = validateApiKey(this.apiKey) ? new ApiClient(this.apiKey, this.apiUrl) : null
   }
 
-  /** Subclasses must implement render() to populate this.shadowRoot. */
-  protected abstract render(): void
+  private mount(): void {
+    const root = this.shadowRoot!
+    root.innerHTML = `
+      <style>${SHARED_CSS}</style>
+      <div class="cortex-element">
+        <div data-error class="error-msg" role="alert" hidden></div>
+        <div data-loading class="loading-overlay" hidden>
+          <div class="spinner"></div>
+          <p data-loading-text></p>
+        </div>
+        <div data-body></div>
+        <div data-result hidden></div>
+      </div>
+    `
+    this.render(root.querySelector<HTMLElement>('[data-body]')!)
+  }
+
+  /** Vuelve al estado inicial (descarta capturas y resultado). */
+  reset(): void {
+    this.cleanup()
+    this.mount()
+  }
+
+  /** Subclasses populate the body container with their capture UI. */
+  protected abstract render(body: HTMLElement): void
 
   /** Override to release resources (streams, timers) on disconnection. */
   protected cleanup(): void {
     /* no-op by default */
+  }
+
+  protected get showResult(): boolean {
+    return this.getAttribute('show-result') !== 'false'
   }
 
   // ── Event helpers ─────────────────────────────────────────────────────────
@@ -71,13 +110,26 @@ export abstract class BaseElement extends HTMLElement {
     this.dispatchEvent(new CustomEvent(event, { detail, bubbles: true, composed: true }))
   }
 
-  protected setLoading(loading: boolean): void {
+  protected setLoading(loading: boolean, message = 'Procesando...'): void {
     this.loading = loading
     this.emit('cortex:loading', { loading })
     const overlay = this.shadowRoot?.querySelector<HTMLElement>('[data-loading]')
     if (overlay) overlay.hidden = !loading
-    const submit = this.shadowRoot?.querySelector<HTMLButtonElement>('[data-submit]')
-    if (submit) submit.disabled = loading
+    const text = this.shadowRoot?.querySelector<HTMLElement>('[data-loading-text]')
+    if (text) text.textContent = message
+    this.shadowRoot?.querySelectorAll<HTMLButtonElement>('[data-submit]').forEach((b) => (b.disabled = loading))
+  }
+
+  /** Reemplaza la UI de captura por el panel de resultado. */
+  protected showResultPanel(panel: HTMLElement): void {
+    if (!this.showResult) return
+    const body = this.shadowRoot?.querySelector<HTMLElement>('[data-body]')
+    const result = this.shadowRoot?.querySelector<HTMLElement>('[data-result]')
+    if (!body || !result) return
+    this.cleanup()
+    body.hidden = true
+    result.replaceChildren(panel)
+    result.hidden = false
   }
 
   /**
@@ -86,11 +138,10 @@ export abstract class BaseElement extends HTMLElement {
    */
   protected handleError(error: unknown): void {
     const code = (error as { code?: string })?.code ?? 'UNKNOWN_ERROR'
-    // Handles: Error instances, plain {code,message} objects, and unknown throws
     const message =
       error instanceof Error
         ? error.message
-        : typeof (error as { message?: unknown }).message === 'string'
+        : typeof (error as { message?: unknown })?.message === 'string'
           ? (error as { message: string }).message
           : String(error)
     this.emit('cortex:error', { code, message })
@@ -104,6 +155,14 @@ export abstract class BaseElement extends HTMLElement {
   protected hideError(): void {
     const errEl = this.shadowRoot?.querySelector<HTMLElement>('[data-error]')
     if (errEl) errEl.hidden = true
+  }
+
+  protected requireClient(): ApiClient | null {
+    if (!this.client) {
+      this.handleError({ code: 'INVALID_API_KEY', message: 'Configura un api-key válido.' })
+      return null
+    }
+    return this.client
   }
 
   /**

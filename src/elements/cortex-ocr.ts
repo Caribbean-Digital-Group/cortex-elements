@@ -1,59 +1,33 @@
 import { BaseElement } from '../core/base-element'
-import { FileDropzone } from '../ui/file-dropzone'
-import { CameraCapture } from '../ui/camera-capture'
-import { SHARED_CSS } from '../styles/shared'
-import { DEFAULT_OCR_MODEL } from '../core/api-client'
+import { prepareUpload, stitchVertical } from '../core/image'
+import { CaptureSlot, type CaptureMode } from '../ui/capture-slot'
+import { createResultPanel } from '../ui/result-panel'
+import {
+  DOCUMENT_TYPE_LABELS,
+  SUMMARY_FIELDS,
+  VALIDATION_LABELS,
+  WARNING_LABELS,
+  formatValue,
+  pick,
+} from '../ui/labels'
+import type { DocumentType, OcrEngine, OcrResult } from '../types/ocr'
 
-type OcrMode = 'upload' | 'camera' | 'both'
-
-/**
- * Converts a File to a pure base64 string (no data: URI prefix).
- */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result
-      if (typeof result !== 'string') { reject(new Error('Error al leer el archivo')); return }
-      const base64 = result.split(',')[1]
-      if (base64) resolve(base64)
-      else reject(new Error('Formato de archivo no reconocido'))
-    }
-    reader.onerror = () => reject(new Error('Error al leer el archivo'))
-    reader.readAsDataURL(file)
-  })
-}
-
-/** PDFs are treated as documents; everything else as images. */
-function mimeToContentType(mime: string): 'image' | 'document' {
-  return mime === 'application/pdf' ? 'document' : 'image'
-}
+const DOCUMENT_TYPES: DocumentType[] = ['auto', 'ine', 'curp', 'cfdi', 'csf']
+const ENGINES: OcrEngine[] = ['auto', 'mistral', 'glm']
 
 /**
- * Sanitizes the model name to prevent URL path injection.
- * Only alphanumerics, hyphens, and underscores are allowed.
- */
-function sanitizeModel(raw: string): string {
-  return /^[A-Za-z0-9_\-]+$/.test(raw) ? raw : DEFAULT_OCR_MODEL
-}
-
-/**
- * <cortex-ocr> — document capture & OCR extraction.
+ * <cortex-ocr> — captura de documentos mexicanos y extracción de datos estructurados.
  *
  * Attributes:
- *   api-key   (required) Cortex API token
- *   api-url   Override backend URL (dev only — must be HTTPS or localhost)
- *   mode      "upload" | "camera" | "both"  (default: "both")
- *   accept    MIME type filter for file upload  (default: "image/*,application/pdf")
- *   lang      Output language for extracted fields  (default: "es")
- *   model     OCR model to use  (default: "mistral-ocr-latest")
- *             Examples: "mistral-ocr-latest", "glm-ocr"
- *
- * Endpoint routing (by file type and model):
- *   image  + mistral-ocr-latest → POST /ocr/image/base64      { image_base64 }
- *   pdf    + mistral-ocr-latest → POST /ocr/document/base64   { document_base64 }
- *   image  + glm-ocr            → POST /glm-ocr/image/base64  { image_base64 }
- *   pdf    + glm-ocr            → POST /glm-ocr/document/base64 { document_base64 }
+ *   api-key        (required) Cortex API token
+ *   api-url        Override backend URL (dev only — must be HTTPS or localhost)
+ *   document-type  "auto" | "ine" | "curp" | "cfdi" | "csf"  (default: "auto")
+ *   mode           "upload" | "camera" | "both"  (default: "both")
+ *   sides          "front" | "both" — solo INE: pide anverso y reverso  (default: "front")
+ *   engine         "auto" | "mistral" | "glm" — motor de OCR; auto usa Mistral con respaldo GLM  (default: "auto")
+ *   accept         MIME types para upload (default según document-type)
+ *   theme          "dark" | "light"
+ *   show-result    "true" | "false" — mostrar el resumen al usuario final (default: "true")
  *
  * JS property:
  *   onResult  (data: OcrResult) => void
@@ -64,93 +38,120 @@ function sanitizeModel(raw: string): string {
  *   cortex:loading  detail: { loading: boolean }
  *
  * Usage:
- *   <cortex-ocr api-key="ck_live_..." mode="both" model="glm-ocr"></cortex-ocr>
- *   document.querySelector('cortex-ocr').onResult = (r) => console.log(r)
+ *   <cortex-ocr api-key="ck_live_..." document-type="ine" sides="both"></cortex-ocr>
+ *   document.querySelector('cortex-ocr').onResult = (r) => console.log(r.fields.curp)
  */
 export class CortexOcr extends BaseElement {
-  private camera: CameraCapture | null = null
+  private slots: CaptureSlot[] = []
+  private captures: Array<Blob | null> = []
 
   static override get observedAttributes(): string[] {
-    return [...super.observedAttributes, 'mode', 'accept', 'lang', 'model']
+    return [...super.observedAttributes, 'mode', 'accept', 'document-type', 'sides', 'engine']
   }
 
-  private get mode(): OcrMode {
+  private get documentType(): DocumentType {
+    const value = this.getAttribute('document-type')?.toLowerCase() as DocumentType | undefined
+    return value && DOCUMENT_TYPES.includes(value) ? value : 'auto'
+  }
+
+  private get engine(): OcrEngine {
+    const value = this.getAttribute('engine')?.toLowerCase() as OcrEngine | undefined
+    return value && ENGINES.includes(value) ? value : 'auto'
+  }
+
+  private get mode(): CaptureMode {
     const m = this.getAttribute('mode')
     return m === 'upload' || m === 'camera' || m === 'both' ? m : 'both'
   }
 
+  private get bothSides(): boolean {
+    return this.documentType === 'ine' && this.getAttribute('sides') === 'both'
+  }
+
   private get accept(): string {
-    return this.getAttribute('accept') ?? 'image/*,application/pdf'
+    const custom = this.getAttribute('accept')
+    if (custom) return custom
+    const base = 'image/*,application/pdf'
+    return this.documentType === 'cfdi' || this.documentType === 'auto' ? `${base},.xml,application/xml,text/xml` : base
   }
 
-  private get model(): string {
-    return sanitizeModel(this.getAttribute('model') ?? DEFAULT_OCR_MODEL)
+  private get acceptHint(): string {
+    const xml = this.accept.includes('xml') ? ', XML' : ''
+    return `JPG, PNG, PDF${xml} · máx. 10 MB`
   }
 
-  protected override render(): void {
-    const root = this.shadowRoot!
-    const mode = this.mode
-    const showUpload = mode !== 'camera'
-    const showCamera = mode !== 'upload'
-    const showSeparator = mode === 'both'
+  protected override render(body: HTMLElement): void {
+    const titles = this.bothSides ? ['Anverso de la INE', 'Reverso de la INE'] : [undefined]
+    this.captures = titles.map(() => null)
 
-    root.innerHTML = `
-      <style>${SHARED_CSS}</style>
-      <div class="cortex-element">
-        <div data-error class="error-msg" hidden></div>
-        <div data-loading class="loading-overlay" hidden>
-          <div class="spinner"></div>
-          <p>Extrayendo datos del documento...</p>
-        </div>
-        <div class="content">
-          ${showUpload ? '<div data-dropzone></div>' : ''}
-          ${showSeparator ? '<div class="separator"><span>o usa la cámara</span></div>' : ''}
-          ${showCamera ? '<div data-camera></div>' : ''}
-        </div>
-      </div>
-    `
+    const heading = document.createElement('p')
+    heading.className = 'element-heading'
+    heading.textContent =
+      this.documentType === 'auto'
+        ? 'Sube tu documento: INE, CURP, factura CFDI o Constancia de Situación Fiscal'
+        : `Sube tu ${DOCUMENT_TYPE_LABELS[this.documentType]}`
+    body.append(heading)
 
-    if (showUpload) {
-      const dropzone = new FileDropzone({
-        accept: this.accept,
-        onFile: (file) => void this.handleFile(file),
-        onError: (msg) => this.handleError({ code: 'FILE_VALIDATION', message: msg }),
-      })
-      root.querySelector('[data-dropzone]')!.appendChild(dropzone.element)
-    }
+    const grid = document.createElement('div')
+    grid.className = this.bothSides ? 'slots slots--two' : 'slots'
+    this.slots = titles.map(
+      (title, i) =>
+        new CaptureSlot({
+          title,
+          mode: this.mode,
+          accept: this.accept,
+          hint: this.acceptHint,
+          facing: 'environment',
+          guide: 'document',
+          onReady: (blob) => this.onCaptured(i, blob),
+          onError: (msg) => this.handleError({ code: 'FILE_VALIDATION', message: msg }),
+        }),
+    )
+    this.slots.forEach((slot) => grid.append(slot.element))
+    body.append(grid)
 
-    if (showCamera) {
-      this.camera = new CameraCapture({
-        // Camera always captures images (JPEG), never PDFs
-        onCapture: (base64) => void this.sendBase64(base64, 'image'),
-        onError: (msg) => this.handleError({ code: 'CAMERA_ERROR', message: msg }),
-      })
-      root.querySelector('[data-camera]')!.appendChild(this.camera.element)
+    if (this.bothSides) {
+      const actions = document.createElement('div')
+      actions.className = 'actions'
+      const submit = document.createElement('button')
+      submit.type = 'button'
+      submit.className = 'btn btn--primary'
+      submit.dataset.submit = ''
+      submit.textContent = 'Extraer datos'
+      submit.disabled = true
+      submit.addEventListener('click', () => void this.submit())
+      actions.append(submit)
+      body.append(actions)
     }
   }
 
-  private async handleFile(file: File): Promise<void> {
-    let base64: string
-    try {
-      base64 = await fileToBase64(file)
-    } catch (err) {
-      this.handleError(err)
-      return
-    }
-    const contentType = mimeToContentType(file.type)
-    await this.sendBase64(base64, contentType)
-  }
-
-  private async sendBase64(base64: string, contentType: 'image' | 'document'): Promise<void> {
-    if (!this.client) {
-      this.handleError({ code: 'INVALID_API_KEY', message: 'Configura un api-key válido.' })
-      return
-    }
+  private onCaptured(index: number, blob: Blob): void {
     this.hideError()
-    this.setLoading(true)
+    this.captures[index] = blob
+    if (!this.bothSides) {
+      void this.submit()
+      return
+    }
+    const submit = this.shadowRoot?.querySelector<HTMLButtonElement>('[data-submit]')
+    if (submit) submit.disabled = this.captures.some((c) => c === null)
+  }
+
+  private async submit(): Promise<void> {
+    const client = this.requireClient()
+    if (!client || this.loading) return
+    const blobs = this.captures.filter((c): c is Blob => c !== null)
+    if (blobs.length !== this.captures.length) {
+      this.handleError({ code: 'MISSING_CAPTURE', message: 'Captura ambos lados de la INE.' })
+      return
+    }
+
+    this.hideError()
+    this.setLoading(true, 'Extrayendo datos del documento...')
     try {
-      const result = await this.client.ocrBase64(base64, contentType, this.model)
+      const payload = blobs.length > 1 ? await stitchVertical(blobs) : await prepareUpload(blobs[0]!)
+      const result = await client.extractDocument(payload, this.documentType, this.engine)
       this.callOnResult(result)
+      this.showResultPanel(this.buildPanel(result))
     } catch (err) {
       this.handleError(err)
     } finally {
@@ -158,7 +159,32 @@ export class CortexOcr extends BaseElement {
     }
   }
 
+  private buildPanel(result: OcrResult): HTMLElement {
+    const rows: Array<[string, string]> = []
+    for (const [path, label] of SUMMARY_FIELDS[result.document_type] ?? []) {
+      const value = formatValue(pick(result, path))
+      if (value) rows.push([label, value])
+    }
+    const checks = Object.entries(result.validations)
+      .filter(([, ok]) => ok !== null)
+      .map(([key, ok]) => ({ label: VALIDATION_LABELS[key] ?? key, ok }))
+    // MOTOR_DE_RESPALDO es informativo para el integrador, no para el usuario final
+    const warnings = result.warnings.filter((w) => w !== 'MOTOR_DE_RESPALDO').map((w) => WARNING_LABELS[w] ?? w)
+    const clean = warnings.length === 0 && result.completeness >= 0.75
+
+    return createResultPanel({
+      status: clean ? 'success' : 'warning',
+      title: result.document_label,
+      subtitle: `${Math.round(result.completeness * 100)}% de los datos clave encontrados`,
+      rows,
+      checks,
+      warnings,
+      resetLabel: 'Procesar otro documento',
+      onReset: () => this.reset(),
+    })
+  }
+
   protected override cleanup(): void {
-    this.camera?.stop()
+    this.slots.forEach((s) => s.stop())
   }
 }
