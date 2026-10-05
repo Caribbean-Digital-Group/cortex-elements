@@ -2,7 +2,11 @@ import type { DocumentType, OcrEngine, OcrResult } from '../types/ocr'
 import type { IdentityResult } from '../types/identity'
 import type { SignatureResult } from '../types/signature'
 
-export const DEFAULT_API_URL = 'https://api.cortexverify.com'
+/**
+ * URL del backend usada cuando el element no define `api-url`.
+ * Se fija al compilar desde VITE_CORTEX_API_URL (.env / .env.production); vite.config.ts la valida.
+ */
+export const DEFAULT_API_URL: string = import.meta.env.VITE_CORTEX_API_URL.replace(/\/+$/, '')
 
 // OCR y biometría pueden tardar (modelos de IA); se da margen suficiente
 const TIMEOUT_MS = { ocr: 90_000, face: 60_000, signature: 30_000 }

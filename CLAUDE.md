@@ -98,7 +98,14 @@ cortex-elements/
 
 ## Contrato de API con el backend (`cortex`)
 
-La URL base se configura en `src/core/api-client.ts` (`DEFAULT_API_URL`) y puede sobreescribirse con `api-url` (HTTPS o localhost).
+La URL base se define al compilar con **`VITE_CORTEX_API_URL`** (archivo `.env`, `.env.production` o variable
+de entorno del proceso; ver `.env.example`). `vite.config.ts` la valida (HTTPS, o `http://localhost` en dev) y la
+incrusta en `dist/elements.js` como `DEFAULT_API_URL`. Cada element puede sobreescribirla con el atributo `api-url`.
+
+```bash
+# Build apuntando a otro backend sin tocar archivos
+VITE_CORTEX_API_URL=https://staging.cortexverify.com npm run build
+```
 Todas las llamadas son `POST` JSON con `Authorization: Bearer <api-key>`. Los archivos viajan en base64;
 las imágenes se optimizan en el navegador (`src/core/image.ts`: ≤2000 px, JPEG, EXIF corregido) antes de enviarse.
 

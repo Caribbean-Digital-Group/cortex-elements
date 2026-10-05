@@ -49,7 +49,7 @@
         <input
           id="api-url-input"
           type="url"
-          placeholder="http://localhost:8000  (vacío = producción)"
+          placeholder="http://localhost:8000  (vacío = VITE_CORTEX_API_URL del build)"
           spellcheck="false"
           autocomplete="off"
         />
@@ -87,7 +87,7 @@
       if (savedToken) textarea.value = savedToken
       if (savedUrl)   urlInput.value  = savedUrl
       if (savedToken) {
-        const urlLabel = savedUrl ? ` → ${savedUrl}` : ' → producción'
+        const urlLabel = savedUrl ? ` → ${savedUrl}` : ' → URL del build (VITE_CORTEX_API_URL)'
         statusEl.textContent = `✓ Configuración cargada${urlLabel}`
         statusEl.className = 'token-card__status token-card__status--ok'
       }
@@ -103,7 +103,7 @@
         localStorage.setItem(KEY_TOKEN, token)
         if (apiUrl) localStorage.setItem(KEY_URL, apiUrl)
         else        localStorage.removeItem(KEY_URL)
-        const urlLabel = apiUrl ? ` → ${apiUrl}` : ' → producción'
+        const urlLabel = apiUrl ? ` → ${apiUrl}` : ' → URL del build (VITE_CORTEX_API_URL)'
         statusEl.textContent = `✓ Guardado${urlLabel} — abre cualquier demo`
         statusEl.className = 'token-card__status token-card__status--ok'
       })
