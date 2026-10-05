@@ -42,12 +42,12 @@ export class CortexSignature extends BaseElement {
     return [...super.observedAttributes, 'mode', 'threshold']
   }
 
-  private get mode(): SignatureMode {
+  private get sampleMode(): SignatureMode {
     const m = this.getAttribute('mode')
     return m === 'upload' || m === 'canvas' || m === 'both' ? m : 'both'
   }
 
-  private get threshold(): number | null {
+  private get minSimilarity(): number | null {
     const raw = this.getAttribute('threshold')
     const value = raw === null ? NaN : parseFloat(raw)
     return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null
@@ -76,7 +76,7 @@ export class CortexSignature extends BaseElement {
     const samplePanel = this.panel('Firma a verificar')
     this.dropzones = [refDropzone]
 
-    if (this.mode !== 'canvas') {
+    if (this.sampleMode !== 'canvas') {
       const sampleDropzone = new FileDropzone({
         accept: SIGNATURE_ACCEPT,
         hint: SIGNATURE_HINT,
@@ -90,7 +90,7 @@ export class CortexSignature extends BaseElement {
       samplePanel.append(sampleDropzone.element)
     }
 
-    if (this.mode === 'both') {
+    if (this.sampleMode === 'both') {
       const sep = document.createElement('div')
       sep.className = 'separator'
       const span = document.createElement('span')
@@ -99,7 +99,7 @@ export class CortexSignature extends BaseElement {
       samplePanel.append(sep)
     }
 
-    if (this.mode !== 'upload') {
+    if (this.sampleMode !== 'upload') {
       const canvas = new SignatureCanvas({
         onChange: (blob) => {
           this.sample = blob
@@ -153,7 +153,7 @@ export class CortexSignature extends BaseElement {
     this.setLoading(true, 'Comparando firmas...')
     try {
       const [ref, sample] = await Promise.all([prepareUpload(this.reference), prepareUpload(this.sample)])
-      const result = await client.signatureCompare(ref, sample, this.threshold)
+      const result = await client.signatureCompare(ref, sample, this.minSimilarity)
       this.callOnResult(result)
       this.showResultPanel(this.buildPanel(result))
     } catch (err) {

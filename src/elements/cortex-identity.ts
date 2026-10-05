@@ -41,7 +41,7 @@ export class CortexIdentity extends BaseElement {
     return [...super.observedAttributes, 'liveness', 'threshold', 'extract-document', 'mode', 'selfie-upload', 'engine']
   }
 
-  private get threshold(): number | null {
+  private get minSimilarity(): number | null {
     const raw = this.getAttribute('threshold')
     if (raw === null) return null
     const value = parseFloat(raw)
@@ -142,7 +142,7 @@ export class CortexIdentity extends BaseElement {
       const [idImage, selfie] = await Promise.all([prepareUpload(this.idBlob), prepareUpload(this.selfieBlob)])
       const result = await client.verifyIdentity(idImage, selfie, {
         checkLiveness: this.flag('liveness', true),
-        threshold: this.threshold,
+        threshold: this.minSimilarity,
         extractDocument: this.flag('extract-document', false),
         ocrEngine: this.ocrEngine,
       })

@@ -18,8 +18,8 @@ import { SHARED_CSS } from '../styles/shared'
  * - Shadow DOM (mode: 'open') isolates element styles from the host page.
  */
 export abstract class BaseElement extends HTMLElement {
-  protected apiKey = ''
-  protected apiUrl = DEFAULT_API_URL
+  protected keyValue = ''
+  protected urlValue = DEFAULT_API_URL
   protected loading = false
   protected client: ApiClient | null = null
   private rendered = false
@@ -35,10 +35,10 @@ export abstract class BaseElement extends HTMLElement {
 
   connectedCallback(): void {
     const key = this.getAttribute('api-key')
-    if (key !== null) this.apiKey = key
+    if (key !== null) this.keyValue = key
 
     const url = this.getAttribute('api-url')
-    if (url && validateApiUrl(url)) this.apiUrl = url
+    if (url && validateApiUrl(url)) this.urlValue = url
 
     this.rebuildClient()
     this.mount()
@@ -51,13 +51,13 @@ export abstract class BaseElement extends HTMLElement {
 
   attributeChangedCallback(name: string, old: string | null, value: string | null): void {
     if (name === 'api-key' && value !== null) {
-      this.apiKey = value
+      this.keyValue = value
       this.rebuildClient()
       return
     }
     if (name === 'api-url') {
-      if (value && validateApiUrl(value)) this.apiUrl = value
-      else if (value === null) this.apiUrl = DEFAULT_API_URL
+      if (value && validateApiUrl(value)) this.urlValue = value
+      else if (value === null) this.urlValue = DEFAULT_API_URL
       this.rebuildClient()
       return
     }
@@ -66,7 +66,7 @@ export abstract class BaseElement extends HTMLElement {
   }
 
   private rebuildClient(): void {
-    this.client = validateApiKey(this.apiKey) ? new ApiClient(this.apiKey, this.apiUrl) : null
+    this.client = validateApiKey(this.keyValue) ? new ApiClient(this.keyValue, this.urlValue) : null
   }
 
   private mount(): void {
@@ -100,7 +100,7 @@ export abstract class BaseElement extends HTMLElement {
     /* no-op by default */
   }
 
-  protected get showResult(): boolean {
+  protected get resultEnabled(): boolean {
     return this.getAttribute('show-result') !== 'false'
   }
 
@@ -122,7 +122,7 @@ export abstract class BaseElement extends HTMLElement {
 
   /** Reemplaza la UI de captura por el panel de resultado. */
   protected showResultPanel(panel: HTMLElement): void {
-    if (!this.showResult) return
+    if (!this.resultEnabled) return
     const body = this.shadowRoot?.querySelector<HTMLElement>('[data-body]')
     const result = this.shadowRoot?.querySelector<HTMLElement>('[data-result]')
     if (!body || !result) return

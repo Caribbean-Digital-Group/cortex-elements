@@ -49,34 +49,34 @@ export class CortexOcr extends BaseElement {
     return [...super.observedAttributes, 'mode', 'accept', 'document-type', 'sides', 'engine']
   }
 
-  private get documentType(): DocumentType {
+  private get docType(): DocumentType {
     const value = this.getAttribute('document-type')?.toLowerCase() as DocumentType | undefined
     return value && DOCUMENT_TYPES.includes(value) ? value : 'auto'
   }
 
-  private get engine(): OcrEngine {
+  private get ocrEngine(): OcrEngine {
     const value = this.getAttribute('engine')?.toLowerCase() as OcrEngine | undefined
     return value && ENGINES.includes(value) ? value : 'auto'
   }
 
-  private get mode(): CaptureMode {
+  private get captureMode(): CaptureMode {
     const m = this.getAttribute('mode')
     return m === 'upload' || m === 'camera' || m === 'both' ? m : 'both'
   }
 
   private get bothSides(): boolean {
-    return this.documentType === 'ine' && this.getAttribute('sides') === 'both'
+    return this.docType === 'ine' && this.getAttribute('sides') === 'both'
   }
 
-  private get accept(): string {
+  private get acceptTypes(): string {
     const custom = this.getAttribute('accept')
     if (custom) return custom
     const base = 'image/*,application/pdf'
-    return this.documentType === 'cfdi' || this.documentType === 'auto' ? `${base},.xml,application/xml,text/xml` : base
+    return this.docType === 'cfdi' || this.docType === 'auto' ? `${base},.xml,application/xml,text/xml` : base
   }
 
   private get acceptHint(): string {
-    const xml = this.accept.includes('xml') ? ', XML' : ''
+    const xml = this.acceptTypes.includes('xml') ? ', XML' : ''
     return `JPG, PNG, PDF${xml} · máx. 10 MB`
   }
 
@@ -87,9 +87,9 @@ export class CortexOcr extends BaseElement {
     const heading = document.createElement('p')
     heading.className = 'element-heading'
     heading.textContent =
-      this.documentType === 'auto'
+      this.docType === 'auto'
         ? 'Sube tu documento: INE, CURP, factura CFDI o Constancia de Situación Fiscal'
-        : `Sube tu ${DOCUMENT_TYPE_LABELS[this.documentType]}`
+        : `Sube tu ${DOCUMENT_TYPE_LABELS[this.docType]}`
     body.append(heading)
 
     const grid = document.createElement('div')
@@ -98,8 +98,8 @@ export class CortexOcr extends BaseElement {
       (title, i) =>
         new CaptureSlot({
           title,
-          mode: this.mode,
-          accept: this.accept,
+          mode: this.captureMode,
+          accept: this.acceptTypes,
           hint: this.acceptHint,
           facing: 'environment',
           guide: 'document',
@@ -149,7 +149,7 @@ export class CortexOcr extends BaseElement {
     this.setLoading(true, 'Extrayendo datos del documento...')
     try {
       const payload = blobs.length > 1 ? await stitchVertical(blobs) : await prepareUpload(blobs[0]!)
-      const result = await client.extractDocument(payload, this.documentType, this.engine)
+      const result = await client.extractDocument(payload, this.docType, this.ocrEngine)
       this.callOnResult(result)
       this.showResultPanel(this.buildPanel(result))
     } catch (err) {

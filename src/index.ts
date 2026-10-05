@@ -10,6 +10,7 @@
 import { CortexOcr } from './elements/cortex-ocr'
 import { CortexIdentity } from './elements/cortex-identity'
 import { CortexSignature } from './elements/cortex-signature'
+import { reflectAttributes } from './core/reflect'
 
 export const version = '2.0.0'
 
@@ -20,7 +21,9 @@ const ELEMENTS: Array<[string, CustomElementConstructor]> = [
 ]
 
 for (const [tag, ctor] of ELEMENTS) {
-  if (!customElements.get(tag)) customElements.define(tag, ctor)
+  if (customElements.get(tag)) continue
+  reflectAttributes(ctor)
+  customElements.define(tag, ctor)
 }
 
 export type { OcrResult, DocumentType, OcrEngine } from './types/ocr'
