@@ -113,7 +113,7 @@ las imágenes se optimizan en el navegador (`src/core/image.ts`: ≤2000 px, JPE
 |---|---|---|
 | `cortex-ocr` | `/ocr/extract` | `{ file_base64, document_type: "auto"\|"ine"\|"curp"\|"cfdi"\|"csf", engine: "auto"\|"mistral"\|"glm" }` |
 | `cortex-identity` | `/face/verify` | `{ document_image, selfie_image, check_liveness, threshold, extract_document }` |
-| `cortex-signature` | `/signature/compare` | `{ reference, sample, threshold }` |
+| `cortex-signature` | `/signature/compare` | `{ reference, sample, threshold, sample_source: "upload"\|"canvas", external_id }` |
 
 Los tipos de respuesta viven en `src/types/` y reflejan exactamente el backend (ver `cortex/CLAUDE.md`).
 
@@ -162,10 +162,15 @@ Flujo: paso 1 identificación → paso 2 selfie (óvalo guía, vista espejo) →
 
 | Atributo | Default | Descripción |
 |---|---|---|
-| `mode` | `both` | Muestra por `upload`, `canvas` o `both` |
-| `threshold` | servidor (0.80) | Similitud mínima |
+| `mode` | `both` | Tipo de comparación: `upload` (referencia vs adjunto), `canvas` (referencia vs dibujo) o `both` (el usuario elige) |
+| `threshold` | servidor (0.80) | Similitud mínima para `authentic` |
+| `external-id` | — | Referencia propia (contrato, folio, ≤100) que se guarda con la comparación |
 
-Flujo: referencia (upload) + muestra (upload o canvas con Pointer Events, exporta al terminar cada trazo) → `/signature/compare`.
+Flujo: referencia ("Adjuntar archivo con firma digital") + muestra (adjunto o canvas con Pointer Events y trazo
+suavizado, exporta al terminar cada trazo) → imágenes a ≤1200 px → `/signature/compare` con `sample_source`.
+La respuesta trae dos decisiones: `authentic` (umbral del API) y `similarity_approved` (nivel de similitud
+configurado por la cuenta en el dashboard → Comparables). El panel muestra éxito si ambas pasan, advertencia si
+solo una. Cada comparación se registra en el dashboard (sin imágenes) con su `comparison_id`.
 
 ---
 

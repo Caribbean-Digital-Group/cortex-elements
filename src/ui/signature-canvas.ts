@@ -11,6 +11,7 @@ const LOGICAL_H = 180
  *
  * - Pointer Events: mouse, touch y stylus con una sola ruta de código.
  * - Escalado por devicePixelRatio para trazos nítidos en pantallas retina.
+ * - Trazo suavizado con curvas cuadráticas entre puntos medios (sin esquinas por muestreo del puntero).
  * - Fondo blanco explícito (el backend también tolera PNG transparente).
  * - Exporta automáticamente al terminar cada trazo — sin botón "usar firma".
  */
@@ -23,6 +24,8 @@ export class SignatureCanvas {
   private hasStrokes = false
   private lastX = 0
   private lastY = 0
+  private midX = 0
+  private midY = 0
 
   constructor(private readonly opts: SignatureCanvasOptions) {
     const container = document.createElement('div')
@@ -71,24 +74,37 @@ export class SignatureCanvas {
       canvas.setPointerCapture(e.pointerId)
       const [x, y] = this.toLogical(e)
       this.drawing = true
-      this.lastX = x
-      this.lastY = y
+      this.lastX = this.midX = x
+      this.lastY = this.midY = y
       this.hint.hidden = true
+      // Un toque sin movimiento también es tinta (puntos de la i, rúbricas cortas)
+      this.ctx.beginPath()
+      this.ctx.arc(x, y, this.ctx.lineWidth / 2, 0, Math.PI * 2)
+      this.ctx.fillStyle = this.ctx.strokeStyle
+      this.ctx.fill()
+      this.hasStrokes = true
     })
     canvas.addEventListener('pointermove', (e: PointerEvent) => {
       if (!this.drawing) return
       const [x, y] = this.toLogical(e)
+      const midX = (this.lastX + x) / 2
+      const midY = (this.lastY + y) / 2
       this.ctx.beginPath()
-      this.ctx.moveTo(this.lastX, this.lastY)
-      this.ctx.lineTo(x, y)
+      this.ctx.moveTo(this.midX, this.midY)
+      this.ctx.quadraticCurveTo(this.lastX, this.lastY, midX, midY)
       this.ctx.stroke()
       this.lastX = x
       this.lastY = y
-      this.hasStrokes = true
+      this.midX = midX
+      this.midY = midY
     })
     const end = () => {
       if (!this.drawing) return
       this.drawing = false
+      this.ctx.beginPath()
+      this.ctx.moveTo(this.midX, this.midY)
+      this.ctx.lineTo(this.lastX, this.lastY)
+      this.ctx.stroke()
       this.export()
     }
     canvas.addEventListener('pointerup', end)

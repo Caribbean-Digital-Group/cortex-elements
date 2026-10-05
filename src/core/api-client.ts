@@ -1,6 +1,6 @@
 import type { DocumentType, OcrEngine, OcrResult } from '../types/ocr'
 import type { IdentityResult } from '../types/identity'
-import type { SignatureResult } from '../types/signature'
+import type { SignatureResult, SignatureSampleSource } from '../types/signature'
 
 /**
  * URL del backend usada cuando el element no define `api-url`.
@@ -141,7 +141,22 @@ export class ApiClient {
     )
   }
 
-  signatureCompare(reference: string, sample: string, threshold: number | null = null): Promise<SignatureResult> {
-    return this.post<SignatureResult>('/signature/compare', { reference, sample, threshold }, TIMEOUT_MS.signature)
+  /** Compara una firma de referencia contra una muestra adjunta o dibujada. */
+  signatureCompare(
+    reference: string,
+    sample: string,
+    options: { threshold?: number | null; sampleSource?: SignatureSampleSource | null; externalId?: string | null } = {},
+  ): Promise<SignatureResult> {
+    return this.post<SignatureResult>(
+      '/signature/compare',
+      {
+        reference,
+        sample,
+        threshold: options.threshold ?? null,
+        sample_source: options.sampleSource ?? null,
+        external_id: options.externalId ?? null,
+      },
+      TIMEOUT_MS.signature,
+    )
   }
 }

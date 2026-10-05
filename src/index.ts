@@ -28,4 +28,4 @@ for (const [tag, ctor] of ELEMENTS) {
 
 export type { OcrResult, DocumentType, OcrEngine } from './types/ocr'
 export type { IdentityResult } from './types/identity'
-export type { SignatureResult } from './types/signature'
+export type { SignatureResult, SignatureSampleSource } from './types/signature'

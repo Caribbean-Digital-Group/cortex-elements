@@ -53,6 +53,15 @@ describe('ApiClient', () => {
     vi.useRealTimers()
   })
 
+  it('envía el origen de la muestra y la referencia externa de la firma', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { authentic: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    await new ApiClient('ck_live_test').signatureCompare('a', 'b', { sampleSource: 'canvas', externalId: 'CTR-1' })
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
+      reference: 'a', sample: 'b', threshold: null, sample_source: 'canvas', external_id: 'CTR-1',
+    })
+  })
+
   it('traduce errores de red', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
     const error = await new ApiClient('ck_live_test').signatureCompare('a', 'b').catch((e) => e)

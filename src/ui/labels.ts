@@ -18,6 +18,11 @@ export const WARNING_LABELS: Record<string, string> = {
   MULTIPLES_ROSTROS_EN_SELFIE: 'Se detectó más de un rostro en la selfie',
   LIVENESS_NO_DISPONIBLE: 'Prueba de vida no disponible',
   POSIBLE_SUPLANTACION: 'Posible suplantación (foto de foto o pantalla)',
+  REFERENCIA_POSIBLEMENTE_RECORTADA: 'La firma de referencia parece estar recortada',
+  MUESTRA_POSIBLEMENTE_RECORTADA: 'La firma a verificar parece estar recortada',
+  REFERENCIA_CON_POCOS_TRAZOS: 'La firma de referencia tiene muy pocos trazos',
+  MUESTRA_CON_POCOS_TRAZOS: 'La firma a verificar tiene muy pocos trazos',
+  PROPORCIONES_MUY_DISTINTAS: 'Las proporciones de las firmas son muy distintas',
 }
 
 export const VALIDATION_LABELS: Record<string, string> = {

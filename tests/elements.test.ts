@@ -54,6 +54,16 @@ describe('<cortex-signature>', () => {
     const el = mount('<cortex-signature api-key="ck_live_aaaaaaaaaaaaaaaa" mode="canvas"></cortex-signature>')
     expect($$(el, '.dropzone')).toHaveLength(1) // solo la referencia
     expect($(el, '.sig-canvas__canvas')).not.toBeNull()
+    expect($(el, '.sig-panel__title')!.textContent).toBe('Firma de referencia')
+    expect(el.shadowRoot!.textContent).toContain('Adjuntar archivo con firma digital')
+    expect(el.shadowRoot!.textContent).toContain('Dibuja la firma a verificar')
+  })
+
+  it('modo upload compara referencia vs adjunto, sin canvas', () => {
+    const el = mount('<cortex-signature api-key="ck_live_aaaaaaaaaaaaaaaa" mode="upload"></cortex-signature>')
+    expect($$(el, '.dropzone')).toHaveLength(2)
+    expect($(el, '.sig-canvas__canvas')).toBeNull()
+    expect(el.shadowRoot!.textContent).toContain('Adjuntar archivo con la firma a verificar')
   })
 })
 
