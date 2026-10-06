@@ -121,6 +121,58 @@ export async function stitchVertical(blobs: Blob[], maxSide = MAX_IMAGE_SIDE): P
   return readAsBase64(await canvasToBlob(output, 'image/jpeg', JPEG_QUALITY))
 }
 
+export interface Region {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * Región del rostro en una captura de la cámara frontal (coordenadas del frame).
+ *
+ * - `tight = false` (con prueba de vida): el área que el usuario vio en pantalla (object-fit: cover a 4:3).
+ *   FasNet evalúa el rostro con 2.7× y 4× de contexto (bordes de pantalla, papel): recortar al óvalo
+ *   degradaría la detección de suplantaciones.
+ * - `tight = true` (sin prueba de vida): solo el óvalo guía con un margen para el detector.
+ */
+export function faceRegion(
+  frameW: number,
+  frameH: number,
+  guide: { stageAspect: number; height: number; aspect: number },
+  tight: boolean,
+  margin = 1.4,
+): Region {
+  const visW = frameW / frameH > guide.stageAspect ? frameH * guide.stageAspect : frameW
+  const visH = visW / guide.stageAspect
+  let w = visW
+  let h = visH
+  if (tight) {
+    h = Math.min(visH, guide.height * visH * margin)
+    w = Math.min(visW, guide.height * visH * guide.aspect * margin)
+  }
+  return { x: Math.round((frameW - w) / 2), y: Math.round((frameH - h) / 2), w: Math.round(w), h: Math.round(h) }
+}
+
+/** Recorta una región de la imagen y la reduce a `maxSide` (JPEG, base64 puro). */
+export async function cropToBase64(
+  blob: Blob,
+  region: (w: number, h: number) => Region,
+  maxSide: number,
+): Promise<string> {
+  const bitmap = await loadBitmap(blob)
+  const r = region(bitmap.width, bitmap.height)
+  const [w, h] = fit(r.w, r.h, maxSide)
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas no disponible.')
+  ctx.drawImage(bitmap, r.x, r.y, r.w, r.h, 0, 0, w, h)
+  if ('close' in bitmap) bitmap.close()
+  return readAsBase64(await canvasToBlob(canvas, 'image/jpeg', JPEG_QUALITY))
+}
+
 /** Convierte base64 puro a Blob (para previsualizar capturas de cámara). */
 export function base64ToBlob(base64: string, type = 'image/jpeg'): Blob {
   const bytes = atob(base64)

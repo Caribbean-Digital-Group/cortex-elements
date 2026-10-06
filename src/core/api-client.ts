@@ -1,5 +1,5 @@
 import type { DocumentType, OcrEngine, OcrResult } from '../types/ocr'
-import type { IdentityResult } from '../types/identity'
+import type { IdentityDocumentSession, IdentityResult } from '../types/identity'
 import type { SignatureResult, SignatureSampleSource } from '../types/signature'
 
 /**
@@ -121,9 +121,31 @@ export class ApiClient {
     )
   }
 
-  /** Verificación facial: identificación vs selfie, con liveness y extracción opcional de la INE. */
-  verifyIdentity(
+  /**
+   * Paso 1 del wizard: el servidor detecta el rostro de la INE (y arranca el OCR) mientras el usuario
+   * se toma la selfie. La sesión se usa en `verifyIdentity({ documentSession })`. No consume cuota.
+   */
+  prepareIdentityDocument(
     documentImage: string,
+    options: { extractDocument?: boolean; ocrEngine?: OcrEngine } = {},
+  ): Promise<IdentityDocumentSession> {
+    return this.post<IdentityDocumentSession>(
+      '/face/document',
+      {
+        document_image: documentImage,
+        extract_document: options.extractDocument ?? false,
+        ocr_engine: options.ocrEngine ?? 'auto',
+      },
+      TIMEOUT_MS.face,
+    )
+  }
+
+  /**
+   * Verificación facial: identificación vs selfie, con liveness y extracción opcional de la INE.
+   * Con `documentSession` solo viaja la selfie (la INE ya se procesó); `documentImage` puede ser null.
+   */
+  verifyIdentity(
+    documentImage: string | null,
     selfieImage: string,
     options: {
       checkLiveness?: boolean
@@ -131,12 +153,14 @@ export class ApiClient {
       extractDocument?: boolean
       ocrEngine?: OcrEngine
       externalId?: string | null
+      documentSession?: string | null
     } = {},
   ): Promise<IdentityResult> {
     return this.post<IdentityResult>(
       '/face/verify',
       {
-        document_image: documentImage,
+        ...(options.documentSession ? { document_session: options.documentSession } : {}),
+        ...(documentImage ? { document_image: documentImage } : {}),
         selfie_image: selfieImage,
         check_liveness: options.checkLiveness ?? true,
         threshold: options.threshold ?? null,

@@ -1,12 +1,17 @@
 import { BaseElement } from '../core/base-element'
-import { prepareUpload } from '../core/image'
+import { cropToBase64, faceRegion, prepareUpload } from '../core/image'
+import { CortexApiError, type ApiClient } from '../core/api-client'
 import { CaptureSlot, type CaptureMode } from '../ui/capture-slot'
+import { FACE_GUIDE } from '../ui/camera-capture'
 import { createResultPanel, type ResultStatus } from '../ui/result-panel'
 import { WARNING_LABELS, formatValue } from '../ui/labels'
 import type { IdentityResult } from '../types/identity'
 import type { OcrEngine } from '../types/ocr'
 
 type Step = 1 | 2 | 3
+
+/** Estado de la INE pre-procesada en el servidor (POST /face/document). */
+type DocumentPrep = { session: string } | { rejected: unknown } | null
 
 const STEPS: Array<[Step, string]> = [
   [1, 'Identificación'],
@@ -17,9 +22,13 @@ const STEPS: Array<[Step, string]> = [
 // El backend reduce a 1600 px para biometría; el OCR de la INE sí aprovecha 2000 px
 const ID_MAX_SIDE = 1600
 const ID_MAX_SIDE_OCR = 2000
-// Para la selfie basta con el rostro: menos datos biométricos en tránsito y menor latencia
-const SELFIE_MAX_SIDE = 1280
+// La selfie viaja recortada al área del rostro: menos datos biométricos en tránsito y menor latencia
+const SELFIE_MAX_SIDE = 960
+// Errores de /face/document que significan "esta INE no sirve": se regresa al paso 1 de inmediato
+const DOCUMENT_REJECTIONS = new Set(['FACE_NOT_DETECTED', 'INVALID_IMAGE', 'UNSUPPORTED_FILE_TYPE', 'FILE_TOO_LARGE'])
 const EXTERNAL_ID_MAX = 100
+type VerifyOptions = NonNullable<Parameters<ApiClient['verifyIdentity']>[2]>
+
 const HIDDEN_WARNINGS = new Set(['LIVENESS_NO_DISPONIBLE', 'MOTOR_DE_RESPALDO'])
 
 /**
@@ -58,6 +67,12 @@ export class CortexIdentity extends BaseElement {
   /** Las imágenes se optimizan en cuanto se capturan, mientras el usuario avanza al siguiente paso. */
   private idUpload: Promise<string | null> | null = null
   private selfieUpload: Promise<string | null> | null = null
+  /**
+   * Al pasar al paso 2, el servidor procesa el rostro de la INE (y el OCR) mientras el usuario se toma la
+   * selfie; al verificar solo viaja la selfie. Si no hay sesión, se envía la INE completa (compatibilidad).
+   */
+  private docPrep: Promise<DocumentPrep> | null = null
+  private docPrepBlob: Blob | null = null
   private idSlot: CaptureSlot | null = null
   private selfieSlot: CaptureSlot | null = null
   private step: Step = 1
@@ -109,6 +124,8 @@ export class CortexIdentity extends BaseElement {
     this.selfieBlob = null
     this.idUpload = null
     this.selfieUpload = null
+    this.docPrep = null
+    this.docPrepBlob = null
     this.step = 1
 
     this.stepper = this.buildStepper()
@@ -177,7 +194,10 @@ export class CortexIdentity extends BaseElement {
 
   private buildIdStep(): HTMLElement {
     const section = this.section(1, 'Identificación oficial (INE)', 'Adjunta o fotografía el frente de tu INE, completo y sin reflejos.')
-    const next = this.button('Continuar', 'primary', () => this.goTo(2))
+    const next = this.button('Continuar', 'primary', () => {
+      this.prepareDocument()
+      this.goTo(2)
+    })
     next.disabled = true
     next.dataset.next = ''
 
@@ -215,7 +235,7 @@ export class CortexIdentity extends BaseElement {
       onReady: (blob) => {
         this.hideError()
         this.selfieBlob = blob
-        this.selfieUpload = this.optimize(blob, SELFIE_MAX_SIDE)
+        this.selfieUpload = this.cropSelfie(blob)
         submit.disabled = !this.idBlob
         submit.focus()
       },
@@ -262,6 +282,67 @@ export class CortexIdentity extends BaseElement {
     return prepareUpload(blob, maxSide).catch(() => null)
   }
 
+  /** Selfie recortada al área del rostro (con el contexto que necesita la prueba de vida) y ≤960 px. */
+  private cropSelfie(blob: Blob): Promise<string | null> {
+    const tight = !this.flag('liveness', true)
+    return cropToBase64(blob, (w, h) => faceRegion(w, h, FACE_GUIDE, tight), SELFIE_MAX_SIDE).catch(() =>
+      this.optimize(blob, SELFIE_MAX_SIDE),
+    )
+  }
+
+  /** Envía la INE al servidor en cuanto el usuario continúa; reutiliza la sesión si la INE no cambió. */
+  private prepareDocument(): void {
+    const client = this.client
+    const blob = this.idBlob
+    if (!client || !blob || (this.docPrep && this.docPrepBlob === blob)) return
+
+    const upload = this.idUpload
+    const max = this.extractsDocument ? ID_MAX_SIDE_OCR : ID_MAX_SIDE
+    this.docPrepBlob = blob
+    const prep: Promise<DocumentPrep> = (async () => {
+      try {
+        const image = (await upload) ?? (await prepareUpload(blob, max))
+        const res = await client.prepareIdentityDocument(image, {
+          extractDocument: this.extractsDocument,
+          ocrEngine: this.ocrEngine,
+        })
+        return { session: res.document_session }
+      } catch (err) {
+        // INE inservible: se avisa ya. Cualquier otro error (red, backend anterior) → envío completo al verificar
+        return err instanceof CortexApiError && DOCUMENT_REJECTIONS.has(err.code) ? { rejected: err } : null
+      }
+    })()
+    this.docPrep = prep
+
+    // Mientras el usuario está en la selfie: regresar al paso 1 con el motivo, sin esperar a "Verificar"
+    void prep.then((state) => {
+      if (state && 'rejected' in state && this.docPrep === prep && this.step === 2 && !this.loading) {
+        this.rejectDocument(state.rejected)
+      }
+    })
+  }
+
+  private rejectDocument(err: unknown): void {
+    this.docPrep = null
+    this.docPrepBlob = null
+    this.goTo(1)
+    this.handleError(err)
+  }
+
+  private async verifyWithSession(client: ApiClient, session: string, selfie: string, options: VerifyOptions) {
+    try {
+      return await client.verifyIdentity(null, selfie, { ...options, documentSession: session })
+    } catch (err) {
+      if (!(err instanceof CortexApiError && err.code === 'DOCUMENT_SESSION_EXPIRED')) throw err
+      this.docPrep = null // expiró (o el servidor se reinició): se envía la INE completa
+      return client.verifyIdentity(await this.documentImage(), selfie, options)
+    }
+  }
+
+  private async documentImage(): Promise<string> {
+    return (await this.idUpload) ?? prepareUpload(this.idBlob!, this.extractsDocument ? ID_MAX_SIDE_OCR : ID_MAX_SIDE)
+  }
+
   // ── Envío ──────────────────────────────────────────────────────────────────
 
   private async submit(): Promise<void> {
@@ -277,18 +358,26 @@ export class CortexIdentity extends BaseElement {
     this.showProgress()
     this.setLoading(true, 'Verificando identidad...', false)
     try {
-      const extract = this.extractsDocument
-      const [idImage, selfie] = await Promise.all([
-        this.idUpload?.then((v) => v ?? prepareUpload(this.idBlob!, extract ? ID_MAX_SIDE_OCR : ID_MAX_SIDE)),
-        this.selfieUpload?.then((v) => v ?? prepareUpload(this.selfieBlob!, SELFIE_MAX_SIDE)),
-      ])
-      const result = await client.verifyIdentity(idImage!, selfie!, {
+      // Normalmente la INE ya está procesada en el servidor: solo falta la selfie
+      const prep = await this.docPrep
+      if (prep && 'rejected' in prep) {
+        this.setLoading(false)
+        this.rejectDocument(prep.rejected)
+        return
+      }
+      const selfie = (await this.selfieUpload) ?? (await this.cropSelfie(this.selfieBlob))
+      if (!selfie) throw new Error('No se pudo leer la selfie.')
+      const options: VerifyOptions = {
         checkLiveness: this.flag('liveness', true),
         threshold: this.minSimilarity,
-        extractDocument: extract,
+        extractDocument: this.extractsDocument,
         ocrEngine: this.ocrEngine,
         externalId: this.externalId,
-      })
+      }
+      const result = prep
+        ? await this.verifyWithSession(client, prep.session, selfie, options)
+        : await client.verifyIdentity(await this.documentImage(), selfie, options)
+      this.docPrep = null // el servidor cerró la sesión al completar la verificación
       this.callOnResult(result)
       this.showOutcome(this.resultEnabled ? this.buildPanel(result) : this.buildDone())
     } catch (err) {

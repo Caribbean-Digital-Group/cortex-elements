@@ -1,5 +1,14 @@
 import type { OcrResult } from './ocr'
 
+/** Respuesta de POST /face/document: INE pre-procesada mientras el usuario se toma la selfie. */
+export interface IdentityDocumentSession {
+  document_session: string
+  /** Segundos de vida de la sesión (en memoria del servidor). */
+  expires_in: number
+  face_detected: boolean
+  extract_document: boolean
+}
+
 export interface IdentityResult {
   /** Id del registro en las verificaciones del dashboard (sin imágenes). */
   verification_id: string

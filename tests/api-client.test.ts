@@ -77,4 +77,24 @@ describe('ApiClient engine', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ file_base64: 'QUJD', document_type: 'curp', engine: 'glm' })
     vi.unstubAllGlobals()
   })
+
+  it('pre-procesa la INE y verifica solo con la selfie', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { document_session: 'ses-1', expires_in: 600 }))
+      .mockResolvedValueOnce(jsonResponse(200, { verified: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient('ck_live_test', 'http://localhost:8000')
+
+    const prep = await client.prepareIdentityDocument('INE', { extractDocument: true })
+    await client.verifyIdentity(null, 'SELFIE', { documentSession: prep.document_session, externalId: 'EXP-1' })
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://localhost:8000/face/document')
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ document_image: 'INE', extract_document: true, ocr_engine: 'auto' })
+    const body = JSON.parse(fetchMock.mock.calls[1]![1].body)
+    expect(body.document_session).toBe('ses-1')
+    expect(body).not.toHaveProperty('document_image') // la INE no vuelve a viajar
+    expect(body.selfie_image).toBe('SELFIE')
+    expect(body.external_id).toBe('EXP-1')
+  })
 })

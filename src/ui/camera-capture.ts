@@ -12,6 +12,12 @@ interface CameraCaptureOptions {
 }
 
 const MAX_CAPTURE_SIDE = 1920
+
+/**
+ * Geometría de la vista de cámara y del óvalo del rostro. Debe coincidir con base.css
+ * (`.camera__video { aspect-ratio: 4/3 }` y `.camera__stage--face .camera__guide { height: 78%; aspect-ratio: 0.78 }`).
+ */
+export const FACE_GUIDE = { stageAspect: 4 / 3, height: 0.78, aspect: 0.78 } as const
 const JPEG_QUALITY = 0.9
 
 /**
