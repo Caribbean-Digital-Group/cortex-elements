@@ -125,7 +125,13 @@ export class ApiClient {
   verifyIdentity(
     documentImage: string,
     selfieImage: string,
-    options: { checkLiveness?: boolean; threshold?: number | null; extractDocument?: boolean; ocrEngine?: OcrEngine } = {},
+    options: {
+      checkLiveness?: boolean
+      threshold?: number | null
+      extractDocument?: boolean
+      ocrEngine?: OcrEngine
+      externalId?: string | null
+    } = {},
   ): Promise<IdentityResult> {
     return this.post<IdentityResult>(
       '/face/verify',
@@ -136,6 +142,7 @@ export class ApiClient {
         threshold: options.threshold ?? null,
         extract_document: options.extractDocument ?? false,
         ocr_engine: options.ocrEngine ?? 'auto',
+        external_id: options.externalId ?? null,
       },
       options.extractDocument ? TIMEOUT_MS.ocr : TIMEOUT_MS.face,
     )

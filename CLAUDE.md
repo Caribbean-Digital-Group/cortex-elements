@@ -112,7 +112,7 @@ las imágenes se optimizan en el navegador (`src/core/image.ts`: ≤2000 px, JPE
 | Element | Endpoint | Payload |
 |---|---|---|
 | `cortex-ocr` | `/ocr/extract` | `{ file_base64, document_type: "auto"\|"ine"\|"curp"\|"cfdi"\|"csf", engine: "auto"\|"mistral"\|"glm" }` |
-| `cortex-identity` | `/face/verify` | `{ document_image, selfie_image, check_liveness, threshold, extract_document }` |
+| `cortex-identity` | `/face/verify` | `{ document_image, selfie_image, check_liveness, threshold, extract_document, ocr_engine, external_id }` |
 | `cortex-signature` | `/signature/compare` | `{ reference, sample, threshold, sample_source: "upload"\|"canvas", external_id }` |
 
 Los tipos de respuesta viven en `src/types/` y reflejan exactamente el backend (ver `cortex/CLAUDE.md`).
@@ -153,10 +153,18 @@ Flujo: captura → `prepareUpload`/`stitchVertical` → `/ocr/extract` → `cort
 | `liveness` | `true` | Prueba de vida anti-spoofing en el servidor |
 | `threshold` | — | Similitud mínima adicional (0–1); por defecto decide el modelo |
 | `extract-document` | `false` | Además extrae los datos de la INE en la misma llamada |
-| `mode` | `both` | Captura de la identificación |
-| `selfie-upload` | `false` | Permitir subir la selfie como archivo (por defecto solo cámara frontal) |
+| `mode` | `both` | Captura de la INE en el paso 1: `upload`, `camera` o `both` |
+| `external-id` | — | Referencia propia (expediente, folio, ≤100) que se guarda con la verificación |
 
-Flujo: paso 1 identificación → paso 2 selfie (óvalo guía, vista espejo) → `/face/verify` → resultado.
+Wizard de tres pasos con indicador de progreso (`.stepper`, `aria-current="step"`) y evento `cortex:step` (`{ step }`):
+1. **Identificación**: INE por archivo o cámara trasera → "Continuar".
+2. **Selfie**: **solo cámara frontal en vivo** (óvalo guía, vista espejo), nunca archivo adjunto; se enciende al entrar. "Atrás" apaga la cámara.
+3. **Resultado**: progreso en línea (sin overlay) → panel. Éxito si `verified` y `similarity_approved`, advertencia si solo
+   `verified`, error si no. Ante error de API: "Reintentar" (mismas fotos) o "Corregir fotos".
+
+Optimización: cada imagen se optimiza en cuanto se captura (en paralelo con el siguiente paso); INE a ≤1600 px
+(≤2000 px con `extract-document`, para OCR) y selfie a ≤1280 px. La respuesta trae `verification_id` y queda
+registrada en el dashboard → Identidad (sin imágenes), donde se configura el nivel de `similarity_approved`.
 
 ### `<cortex-signature />`
 

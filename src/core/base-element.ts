@@ -110,11 +110,12 @@ export abstract class BaseElement extends HTMLElement {
     this.dispatchEvent(new CustomEvent(event, { detail, bubbles: true, composed: true }))
   }
 
-  protected setLoading(loading: boolean, message = 'Procesando...'): void {
+  /** `overlay: false` cuando el element muestra su propio progreso (p. ej. el paso de resultado del wizard). */
+  protected setLoading(loading: boolean, message = 'Procesando...', overlay = true): void {
     this.loading = loading
     this.emit('cortex:loading', { loading })
-    const overlay = this.shadowRoot?.querySelector<HTMLElement>('[data-loading]')
-    if (overlay) overlay.hidden = !loading
+    const overlayEl = this.shadowRoot?.querySelector<HTMLElement>('[data-loading]')
+    if (overlayEl) overlayEl.hidden = !(loading && overlay)
     const text = this.shadowRoot?.querySelector<HTMLElement>('[data-loading-text]')
     if (text) text.textContent = message
     this.shadowRoot?.querySelectorAll<HTMLButtonElement>('[data-submit]').forEach((b) => (b.disabled = loading))

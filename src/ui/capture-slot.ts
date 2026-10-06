@@ -89,6 +89,16 @@ export class CaptureSlot {
     cb(blob)
   }
 
+  /** Enciende la cámara del paso (sin efecto en modo solo archivo). */
+  startCamera(): void {
+    void this.camera?.start()
+  }
+
+  /** Libera la cámara al salir del paso, sin descartar la captura. */
+  pauseCamera(): void {
+    this.camera?.pause()
+  }
+
   stop(): void {
     this.camera?.stop()
     this.dropzone?.destroy()

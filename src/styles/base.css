@@ -230,6 +230,140 @@
   color: var(--cortex-text);
 }
 
+/* ── Wizard (cortex-identity) ────────────────────────────────────────────────── */
+.stepper {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.stepper__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  color: var(--cortex-text-muted);
+  font-size: 0.8125rem;
+}
+
+/* Conector entre pasos */
+.stepper__item:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  margin: 0 0.5rem;
+  border-radius: 1px;
+  background: var(--cortex-border);
+}
+
+.stepper__item--done:not(:last-child)::after {
+  background: var(--cortex-primary);
+}
+
+.stepper__item:last-child {
+  flex: 0 0 auto;
+}
+
+.stepper__dot {
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 2px solid var(--cortex-border);
+  color: var(--cortex-text-muted);
+}
+
+.stepper__item--active {
+  color: var(--cortex-text);
+  font-weight: 600;
+}
+
+.stepper__item--active .stepper__dot {
+  border-color: var(--cortex-primary);
+  color: var(--cortex-primary);
+}
+
+.stepper__item--done .stepper__dot {
+  background: var(--cortex-primary);
+  border-color: var(--cortex-primary);
+  color: var(--cortex-on-primary);
+  font-size: 0;
+}
+
+.stepper__item--done .stepper__dot::before {
+  content: '✓';
+  font-size: 0.75rem;
+}
+
+.stepper__label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 420px) {
+  .stepper__item:not(.stepper__item--active) .stepper__label {
+    display: none;
+  }
+}
+
+.wizard-step__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cortex-text);
+  outline: none;
+}
+
+.wizard-step__hint {
+  font-size: 0.8125rem;
+  color: var(--cortex-text-muted);
+  margin: 0.25rem 0 1rem;
+}
+
+.actions--split {
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.actions--split > :last-child {
+  margin-left: auto;
+}
+
+.wizard-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  padding: 1.5rem 0 0.5rem;
+}
+
+.wizard-progress .actions {
+  align-self: stretch;
+}
+
+.wizard-progress__list {
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--cortex-text-muted);
+}
+
+.wizard-progress__list li::before {
+  content: '• ';
+  color: var(--cortex-primary);
+}
+
+.result__title:focus {
+  outline: none;
+}
+
 /* ── Signature two-column layout ─────────────────────────────────────────────── */
 .sig-panels {
   display: grid;

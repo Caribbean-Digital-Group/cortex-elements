@@ -40,12 +40,47 @@ describe('<cortex-ocr>', () => {
 })
 
 describe('<cortex-identity>', () => {
-  it('muestra la selfie solo después de la identificación', () => {
+  const visibleStep = (el: HTMLElement) =>
+    [...$$(el, '[data-wizard-step]')].filter((s) => !s.hidden).map((s) => s.dataset.wizardStep)
+
+  it('es un wizard de tres pasos que inicia en la INE', () => {
     const el = mount('<cortex-identity api-key="ck_live_aaaaaaaaaaaaaaaa"></cortex-identity>')
-    const slots = $$(el, '.slot')
-    expect(slots).toHaveLength(2)
-    expect(slots[1]!.hidden).toBe(true)
+    expect($$(el, '.stepper__item')).toHaveLength(3)
+    expect(visibleStep(el)).toEqual(['1'])
+    expect($(el, '.stepper__item--active')!.textContent).toContain('Identificación')
+    expect($(el, '.stepper__item--active')!.getAttribute('aria-current')).toBe('step')
+    expect(($(el, '[data-next]') as HTMLButtonElement).disabled).toBe(true)
     expect(($(el, '[data-submit]') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('paso 1 permite adjuntar o fotografiar la INE; paso 2 solo cámara', () => {
+    const el = mount('<cortex-identity api-key="ck_live_aaaaaaaaaaaaaaaa" selfie-upload="true"></cortex-identity>')
+    expect($$(el, '[data-wizard-step="1"] .dropzone')).toHaveLength(1)
+    expect($$(el, '[data-wizard-step="1"] .camera')).toHaveLength(1)
+    // aunque llegue el atributo retirado, la selfie nunca acepta archivos
+    expect($$(el, '[data-wizard-step="2"] .dropzone')).toHaveLength(0)
+    expect($$(el, '[data-wizard-step="2"] input[type="file"]')).toHaveLength(0)
+    expect($$(el, '[data-wizard-step="2"] .camera')).toHaveLength(1)
+  })
+
+  it('al adjuntar la INE habilita continuar y avanza a la selfie', async () => {
+    const el = mount('<cortex-identity api-key="ck_live_aaaaaaaaaaaaaaaa" mode="upload"></cortex-identity>')
+    const steps: number[] = []
+    el.addEventListener('cortex:step', (e) => steps.push((e as CustomEvent).detail.step))
+    const input = $(el, '[data-wizard-step="1"] input[type="file"]') as HTMLInputElement
+    const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], 'ine.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    input.dispatchEvent(new Event('change'))
+
+    const next = $(el, '[data-next]') as HTMLButtonElement
+    expect(next.disabled).toBe(false)
+    next.click()
+    expect(visibleStep(el)).toEqual(['2'])
+    expect($(el, '.stepper__item--done')!.textContent).toContain('Identificación')
+    expect(steps).toEqual([2])
+
+    ;([...$$(el, '[data-wizard-step="2"] .btn')].find((b) => b.textContent === 'Atrás') as HTMLButtonElement).click()
+    expect(visibleStep(el)).toEqual(['1'])
   })
 })
 

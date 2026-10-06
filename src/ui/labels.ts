@@ -18,6 +18,7 @@ export const WARNING_LABELS: Record<string, string> = {
   MULTIPLES_ROSTROS_EN_SELFIE: 'Se detectó más de un rostro en la selfie',
   LIVENESS_NO_DISPONIBLE: 'Prueba de vida no disponible',
   POSIBLE_SUPLANTACION: 'Posible suplantación (foto de foto o pantalla)',
+  DOCUMENTO_NO_EXTRAIDO: 'No se pudieron extraer los datos de la INE',
   REFERENCIA_POSIBLEMENTE_RECORTADA: 'La firma de referencia parece estar recortada',
   MUESTRA_POSIBLEMENTE_RECORTADA: 'La firma a verificar parece estar recortada',
   REFERENCIA_CON_POCOS_TRAZOS: 'La firma de referencia tiene muy pocos trazos',

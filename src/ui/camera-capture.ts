@@ -134,7 +134,9 @@ export class CameraCapture {
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
-  private async start(): Promise<void> {
+  /** Enciende la cámara (también desde código, p. ej. al entrar al paso de selfie). */
+  async start(): Promise<void> {
+    this.stopStream() // nunca dejar un stream previo encendido
     this.capturedBase64 = null
     this.previewImg.removeAttribute('src')
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -191,6 +193,13 @@ export class CameraCapture {
     this.stream?.getTracks().forEach((t) => t.stop())
     this.stream = null
     this.video.srcObject = null
+  }
+
+  /** Apaga la cámara si está en vivo (al salir del paso); conserva la foto ya capturada. */
+  pause(): void {
+    if (!this.stream) return
+    this.stopStream()
+    this.setState('idle')
   }
 
   /** Must be called when the host element disconnects to release the camera. */

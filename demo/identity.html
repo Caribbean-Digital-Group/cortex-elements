@@ -14,7 +14,7 @@
     </nav>
 
     <h1 class="demo-title">cortex-identity</h1>
-    <p class="demo-subtitle">Verifica identidad comparando la foto del ID contra una selfie en vivo.</p>
+    <p class="demo-subtitle">Wizard de 3 pasos: INE → selfie en vivo → resultado (con nivel de similitud configurable en el dashboard).</p>
 
     <!-- Token input -->
     <div class="token-card">
@@ -44,7 +44,7 @@
 
     <!-- Element — shown only after token is applied -->
     <div id="element-wrapper" class="element-wrapper">
-      <cortex-identity id="identity" liveness="true" extract-document="true"></cortex-identity>
+      <cortex-identity id="identity" liveness="true" extract-document="true" external-id="DEMO-001"></cortex-identity>
     </div>
 
     <p class="result-label">Resultado</p>
