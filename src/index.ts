@@ -4,8 +4,8 @@
  * Registers the three Cortex custom elements as a self-contained IIFE.
  * Idempotent: safe to load the script multiple times (e.g. in SPAs).
  *
- * Exported from dist/elements.js via CDN:
- *   <script src="https://cdn.cortexverify.com/elements.js"></script>
+ * Published from dist/elements.js by the cortex-verify dashboard (Netlify):
+ *   <script src="https://cortexverify.netlify.app/elements.js"></script>
  */
 import { CortexOcr } from './elements/cortex-ocr'
 import { CortexIdentity } from './elements/cortex-identity'

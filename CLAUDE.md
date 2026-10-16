@@ -10,7 +10,7 @@ Este repo **no contiene lógica de IA** — actúa como cliente HTTP que:
 3. Expone el resultado al sitio del cliente vía callbacks y eventos DOM
 
 La librería es consumida de dos formas:
-- **Clientes externos** → via CDN: `https://cdn.cortexverify.com/elements.js`
+- **Clientes externos** → `https://cortexverify.netlify.app/elements.js` (lo publica el deploy de cortex-verify desde su `public/elements.js`)
 - **cortex-verify (SaaS dashboard)** → via archivo local en dev, CDN en prod (para demos en vivo y documentación interactiva de la galería `/elements`)
 
 ---
@@ -298,4 +298,4 @@ export default defineConfig({
 
 **Artifact de salida:** `dist/elements.js` (~13 KB gzip)
 
-**Deploy a CDN:** El pipeline de CI sube `dist/elements.js` a `cdn.cortexverify.com` en cada merge a `main`.
+**Publicación:** `dist/elements.js` se copia a `cortex-verify/public/elements.js` con `npm run elements:sync` (en cortex-verify) y se publica con su deploy de Netlify en `https://cortexverify.netlify.app/elements.js`. Construir antes con `VITE_CORTEX_API_URL` de producción: el sync rechaza builds que apunten a localhost.
