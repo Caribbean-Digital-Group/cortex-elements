@@ -1,64 +1,81 @@
-import { validateFile, expandAccept, MAX_FILE_SIZE_BYTES } from '../core/validators'
+import { validateFile, expandAccept, effectiveMime, MAX_FILE_SIZE_BYTES } from '../core/validators'
 
 interface DropzoneOptions {
   /** Accept string matching the HTML `accept` attribute format (e.g. "image/*,application/pdf"). */
   accept?: string
   maxBytes?: number
+  /** Texto principal de la zona. */
+  label?: string
+  /** Texto secundario (formatos aceptados). */
+  hint?: string
   onFile: (file: File) => void
   onError: (message: string) => void
 }
 
+const DEFAULT_LABEL = 'Arrastra un archivo aquí o haz clic para seleccionar'
+
 /**
- * FileDropzone — reusable drag-and-drop + click-to-upload UI.
+ * FileDropzone — reusable drag-and-drop + click-to-upload UI with image preview.
  *
  * Security:
  * - File MIME type is validated against a static allowlist (not arbitrary strings).
  * - File size is validated before any processing.
  * - The displayed filename is set via textContent, never innerHTML.
- * - The hidden <input> accept attribute uses the validated accept string.
+ * - Previews use local object URLs (no network) and are revoked when replaced.
  */
 export class FileDropzone {
   readonly element: HTMLElement
   private readonly input: HTMLInputElement
   private readonly labelEl: HTMLElement
+  private readonly previewEl: HTMLImageElement
+  private readonly iconEl: HTMLElement
   private readonly allowedMimes: Set<string>
   private readonly maxBytes: number
+  private readonly defaultLabel: string
+  private previewUrl: string | null = null
 
   constructor(private readonly opts: DropzoneOptions) {
     this.maxBytes = opts.maxBytes ?? MAX_FILE_SIZE_BYTES
     this.allowedMimes = expandAccept(opts.accept ?? 'image/*,application/pdf')
+    this.defaultLabel = opts.label ?? DEFAULT_LABEL
 
     const zone = document.createElement('div')
     zone.className = 'dropzone'
     zone.setAttribute('role', 'button')
     zone.setAttribute('tabindex', '0')
-    zone.setAttribute('aria-label', 'Arrastra un archivo o haz clic para seleccionar')
+    zone.setAttribute('aria-label', this.defaultLabel)
 
     const icon = document.createElement('span')
     icon.className = 'dropzone__icon'
     icon.setAttribute('aria-hidden', 'true')
-    icon.textContent = '📂'
+    icon.textContent = '⬆'
+    this.iconEl = icon
+
+    const preview = document.createElement('img')
+    preview.className = 'dropzone__preview'
+    preview.alt = 'Vista previa'
+    preview.hidden = true
+    this.previewEl = preview
 
     const label = document.createElement('p')
     label.className = 'dropzone__label'
-    label.textContent = 'Arrastra un archivo aquí o haz clic para seleccionar'
+    label.textContent = this.defaultLabel
     this.labelEl = label
 
     const hint = document.createElement('p')
     hint.className = 'dropzone__hint'
-    hint.textContent = `Máx. ${Math.round(this.maxBytes / 1024 / 1024)} MB`
+    hint.textContent = opts.hint ?? `Máx. ${Math.round(this.maxBytes / 1024 / 1024)} MB`
 
     // Hidden native input — driven by zone clicks
     const input = document.createElement('input')
     input.type = 'file'
-    // accept attribute only allows safe, pre-validated MIME types
     input.accept = opts.accept ?? 'image/*,application/pdf'
     input.hidden = true
     input.setAttribute('aria-hidden', 'true')
     input.setAttribute('tabindex', '-1')
     this.input = input
 
-    zone.append(icon, label, hint, input)
+    zone.append(icon, preview, label, hint, input)
     this.element = zone
 
     // ── Event listeners ─────────────────────────────────────────────────────
@@ -100,14 +117,40 @@ export class FileDropzone {
       this.opts.onError(err)
       return
     }
-    // Show selected filename via textContent (safe, no XSS risk)
-    this.labelEl.textContent = file.name
+    this.showSelected(file)
     this.opts.onFile(file)
   }
 
+  /** Muestra miniatura (imágenes) o el nombre del archivo (PDF/XML). */
+  showSelected(file: Blob, name?: string): void {
+    this.revokePreview()
+    const isImage = (file instanceof File ? effectiveMime(file) : file.type).startsWith('image/')
+    if (isImage) {
+      this.previewUrl = URL.createObjectURL(file)
+      this.previewEl.src = this.previewUrl
+    }
+    this.previewEl.hidden = !isImage
+    this.iconEl.hidden = isImage
+    this.labelEl.textContent = name ?? (file instanceof File ? file.name : 'Imagen capturada')
+    this.element.classList.add('dropzone--filled')
+  }
+
+  private revokePreview(): void {
+    if (this.previewUrl) URL.revokeObjectURL(this.previewUrl)
+    this.previewUrl = null
+  }
+
   reset(): void {
+    this.revokePreview()
     this.input.value = ''
-    this.labelEl.textContent = 'Arrastra un archivo aquí o haz clic para seleccionar'
-    this.element.classList.remove('dropzone--over')
+    this.previewEl.hidden = true
+    this.previewEl.removeAttribute('src')
+    this.iconEl.hidden = false
+    this.labelEl.textContent = this.defaultLabel
+    this.element.classList.remove('dropzone--over', 'dropzone--filled')
+  }
+
+  destroy(): void {
+    this.revokePreview()
   }
 }

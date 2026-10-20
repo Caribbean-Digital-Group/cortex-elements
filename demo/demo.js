@@ -27,7 +27,7 @@ export function initDemo({ elementId, onApply }) {
     }
     wrapper.classList.add('active')
 
-    const urlLabel = apiUrl ? ` → ${apiUrl}` : ' → producción'
+    const urlLabel = apiUrl ? ` → ${apiUrl}` : ' → URL del build (VITE_CORTEX_API_URL)'
     statusEl.textContent = `✓ Configuración aplicada${urlLabel}`
     statusEl.className = 'token-card__status token-card__status--ok'
     onApply(el)

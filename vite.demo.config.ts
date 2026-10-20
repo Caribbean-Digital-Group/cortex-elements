@@ -26,6 +26,8 @@ function serveElementsIife(): Plugin {
         res.statusCode = 200
         res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+        // Permite cargarlo desde el dashboard (otro puerto) con <script crossorigin>
+        res.setHeader('Access-Control-Allow-Origin', '*')
         res.end(readFileSync(iifePath))
       })
     },

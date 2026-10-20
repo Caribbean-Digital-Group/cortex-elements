@@ -4,21 +4,28 @@
  * Registers the three Cortex custom elements as a self-contained IIFE.
  * Idempotent: safe to load the script multiple times (e.g. in SPAs).
  *
- * Exported from dist/elements.js via CDN:
- *   <script src="https://cdn.cortexverify.com/elements.js"></script>
+ * Published from dist/elements.js by the cortex-verify dashboard (Netlify):
+ *   <script src="https://cortexverify.netlify.app/elements.js"></script>
  */
 import { CortexOcr } from './elements/cortex-ocr'
 import { CortexIdentity } from './elements/cortex-identity'
 import { CortexSignature } from './elements/cortex-signature'
+import { reflectAttributes } from './core/reflect'
 
-if (!customElements.get('cortex-ocr')) {
-  customElements.define('cortex-ocr', CortexOcr)
+export const version = '2.0.0'
+
+const ELEMENTS: Array<[string, CustomElementConstructor]> = [
+  ['cortex-ocr', CortexOcr],
+  ['cortex-identity', CortexIdentity],
+  ['cortex-signature', CortexSignature],
+]
+
+for (const [tag, ctor] of ELEMENTS) {
+  if (customElements.get(tag)) continue
+  reflectAttributes(ctor)
+  customElements.define(tag, ctor)
 }
 
-if (!customElements.get('cortex-identity')) {
-  customElements.define('cortex-identity', CortexIdentity)
-}
-
-if (!customElements.get('cortex-signature')) {
-  customElements.define('cortex-signature', CortexSignature)
-}
+export type { OcrResult, DocumentType, OcrEngine } from './types/ocr'
+export type { IdentityResult, IdentityDocumentSession } from './types/identity'
+export type { SignatureResult, SignatureSampleSource } from './types/signature'

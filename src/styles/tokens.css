@@ -4,18 +4,22 @@
  * Example:
  *   cortex-ocr {
  *     --cortex-primary: #7c3aed;
- *     --cortex-bg: #ffffff;
+ *     --cortex-radius: 4px;
  *   }
+ *
+ * Or switch the whole palette with the `theme="light"` attribute.
  */
 :host {
   /* Brand */
   --cortex-primary: #06b6d4;
   --cortex-primary-hover: #0891b2;
+  --cortex-on-primary: #ffffff;
 
   /* Surfaces */
   --cortex-bg: #0f172a;
   --cortex-surface: #1e293b;
   --cortex-surface-hover: #273548;
+  --cortex-overlay: rgba(15, 23, 42, 0.82);
 
   /* Borders */
   --cortex-border: rgba(255, 255, 255, 0.1);
@@ -29,6 +33,9 @@
   --cortex-error: #ef4444;
   --cortex-error-bg: rgba(239, 68, 68, 0.08);
   --cortex-success: #22c55e;
+  --cortex-success-bg: rgba(34, 197, 94, 0.1);
+  --cortex-warning: #f59e0b;
+  --cortex-warning-bg: rgba(245, 158, 11, 0.1);
 
   /* Shape */
   --cortex-radius: 0.75rem;
@@ -37,4 +44,23 @@
   /* Typography */
   --cortex-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --cortex-font-size: 0.9375rem;
+}
+
+:host([theme='light']) {
+  --cortex-primary: #0891b2;
+  --cortex-primary-hover: #0e7490;
+  --cortex-bg: #ffffff;
+  --cortex-surface: #f1f5f9;
+  --cortex-surface-hover: #e2e8f0;
+  --cortex-overlay: rgba(255, 255, 255, 0.85);
+  --cortex-border: rgba(15, 23, 42, 0.12);
+  --cortex-border-focus: rgba(8, 145, 178, 0.5);
+  --cortex-text: #0f172a;
+  --cortex-text-muted: #64748b;
+  --cortex-error: #dc2626;
+  --cortex-error-bg: rgba(220, 38, 38, 0.06);
+  --cortex-success: #16a34a;
+  --cortex-success-bg: rgba(22, 163, 74, 0.08);
+  --cortex-warning: #d97706;
+  --cortex-warning-bg: rgba(217, 119, 6, 0.08);
 }

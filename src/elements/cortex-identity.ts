@@ -1,38 +1,52 @@
 import { BaseElement } from '../core/base-element'
-import { FileDropzone } from '../ui/file-dropzone'
-import { CameraCapture } from '../ui/camera-capture'
-import { SHARED_CSS } from '../styles/shared'
+import { cropToBase64, faceRegion, prepareUpload } from '../core/image'
+import { CortexApiError, type ApiClient } from '../core/api-client'
+import { CaptureSlot, type CaptureMode } from '../ui/capture-slot'
+import { FACE_GUIDE } from '../ui/camera-capture'
+import { createResultPanel, type ResultStatus } from '../ui/result-panel'
+import { WARNING_LABELS, formatValue } from '../ui/labels'
+import type { IdentityResult } from '../types/identity'
+import type { OcrEngine } from '../types/ocr'
+
+type Step = 1 | 2 | 3
+
+/** Estado de la INE pre-procesada en el servidor (POST /face/document). */
+type DocumentPrep = { session: string } | { rejected: unknown } | null
+
+const STEPS: Array<[Step, string]> = [
+  [1, 'Identificación'],
+  [2, 'Selfie'],
+  [3, 'Resultado'],
+]
+
+// El backend reduce a 1600 px para biometría; el OCR de la INE sí aprovecha 2000 px
+const ID_MAX_SIDE = 1600
+const ID_MAX_SIDE_OCR = 2000
+// La selfie viaja recortada al área del rostro: menos datos biométricos en tránsito y menor latencia
+const SELFIE_MAX_SIDE = 960
+// Errores de /face/document que significan "esta INE no sirve": se regresa al paso 1 de inmediato
+const DOCUMENT_REJECTIONS = new Set(['FACE_NOT_DETECTED', 'INVALID_IMAGE', 'UNSUPPORTED_FILE_TYPE', 'FILE_TOO_LARGE'])
+const EXTERNAL_ID_MAX = 100
+type VerifyOptions = NonNullable<Parameters<ApiClient['verifyIdentity']>[2]>
+
+const HIDDEN_WARNINGS = new Set(['LIVENESS_NO_DISPONIBLE', 'MOTOR_DE_RESPALDO'])
 
 /**
- * Reads a File and returns its content as a pure base64 string (no data: URI prefix).
- */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result
-      if (typeof result !== 'string') {
-        reject(new Error('Error al leer el archivo'))
-        return
-      }
-      const base64 = result.split(',')[1]
-      if (base64) resolve(base64)
-      else reject(new Error('Formato de archivo no reconocido'))
-    }
-    reader.onerror = () => reject(new Error('Error al leer el archivo'))
-    reader.readAsDataURL(file)
-  })
-}
-
-/**
- * <cortex-identity> — biometric identity verification.
- * Compares a photo ID against a live selfie.
+ * <cortex-identity> — verificación biométrica en tres pasos: INE → selfie → resultado.
  *
  * Attributes:
- *   api-key    (required) Cortex API token
- *   api-url    Override backend URL (dev only)
- *   liveness   "true" | "false"  Enable anti-spoofing  (default: "true")
- *   threshold  Number 0–1        Minimum similarity score  (default: "0.75")
+ *   api-key           (required) Cortex API token
+ *   api-url           Override backend URL (dev only)
+ *   liveness          "true" | "false"  Prueba de vida anti-spoofing  (default: "true")
+ *   threshold         0–1  Similitud mínima adicional para `face_match` (default: decisión del modelo)
+ *   extract-document  "true" | "false"  Extraer también los datos de la INE  (default: "false")
+ *   mode              "upload" | "camera" | "both" — captura de la INE en el paso 1  (default: "both")
+ *                     La selfie del paso 2 siempre se toma en vivo con la cámara frontal (sin adjuntar archivo).
+ *   engine            "auto" | "mistral" | "glm"  Motor de OCR para extract-document  (default: "auto")
+ *   external-id       Referencia propia (expediente, folio) que se guarda con la verificación
+ *   theme, show-result
+ *
+ * El nivel de similitud de `similarity_approved` se configura en el dashboard (Identidad).
  *
  * JS property:
  *   onResult   (data: IdentityResult) => void
@@ -41,129 +55,445 @@ function fileToBase64(file: File): Promise<string> {
  *   cortex:result   detail: IdentityResult
  *   cortex:error    detail: { code: string; message: string }
  *   cortex:loading  detail: { loading: boolean }
+ *   cortex:step     detail: { step: 1 | 2 | 3 }
  *
  * Usage:
- *   <cortex-identity api-key="ck_live_..." threshold="0.8"></cortex-identity>
- *   document.querySelector('cortex-identity').onResult = (r) => console.log(r.verified)
+ *   <cortex-identity api-key="ck_live_..." extract-document="true"></cortex-identity>
+ *   document.querySelector('cortex-identity').onResult = (r) => console.log(r.verified, r.similarity_approved)
  */
 export class CortexIdentity extends BaseElement {
-  private idBase64: string | null = null
-  private selfieBase64: string | null = null
-  private camera: CameraCapture | null = null
+  private idBlob: Blob | null = null
+  private selfieBlob: Blob | null = null
+  /** Las imágenes se optimizan en cuanto se capturan, mientras el usuario avanza al siguiente paso. */
+  private idUpload: Promise<string | null> | null = null
+  private selfieUpload: Promise<string | null> | null = null
+  /**
+   * Al pasar al paso 2, el servidor procesa el rostro de la INE (y el OCR) mientras el usuario se toma la
+   * selfie; al verificar solo viaja la selfie. Si no hay sesión, se envía la INE completa (compatibilidad).
+   */
+  private docPrep: Promise<DocumentPrep> | null = null
+  private docPrepBlob: Blob | null = null
+  private idSlot: CaptureSlot | null = null
+  private selfieSlot: CaptureSlot | null = null
+  private step: Step = 1
+  private stepper: HTMLOListElement | null = null
+  private sections: Partial<Record<Step, HTMLElement>> = {}
+  private outcome: HTMLElement | null = null
 
   static override get observedAttributes(): string[] {
-    return [...super.observedAttributes, 'liveness', 'threshold']
+    return [
+      ...super.observedAttributes,
+      'liveness', 'threshold', 'extract-document', 'mode', 'engine', 'external-id',
+    ]
   }
 
-  private get threshold(): number {
-    const raw = parseFloat(this.getAttribute('threshold') ?? '0.75')
-    return Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0.75
+  private get minSimilarity(): number | null {
+    const raw = this.getAttribute('threshold')
+    const value = raw === null ? NaN : parseFloat(raw)
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null
   }
 
-  protected override render(): void {
-    const root = this.shadowRoot!
+  private get idMode(): CaptureMode {
+    const m = this.getAttribute('mode')
+    return m === 'upload' || m === 'camera' || m === 'both' ? m : 'both'
+  }
 
-    root.innerHTML = `
-      <style>${SHARED_CSS}</style>
-      <div class="cortex-element">
-        <div data-error class="error-msg" hidden></div>
-        <div data-loading class="loading-overlay" hidden>
-          <div class="spinner"></div>
-          <p>Verificando identidad...</p>
-        </div>
-        <div class="steps">
+  private get ocrEngine(): OcrEngine {
+    const value = this.getAttribute('engine')
+    return value === 'mistral' || value === 'glm' ? value : 'auto'
+  }
 
-          <div class="step" data-step="1">
-            <div class="step__header">
-              <div class="step__number" aria-hidden="true">1</div>
-              <span class="step__title">Fotografía o sube tu identificación oficial</span>
-            </div>
-            <div data-id-zone></div>
-          </div>
+  private get externalId(): string | null {
+    const value = this.getAttribute('external-id')?.trim()
+    return value ? value.slice(0, EXTERNAL_ID_MAX) : null
+  }
 
-          <div class="step" data-step="2" hidden>
-            <div class="step__header">
-              <div class="step__number" aria-hidden="true">2</div>
-              <span class="step__title">Tómate una selfie</span>
-            </div>
-            <div data-selfie-zone></div>
-          </div>
+  private flag(name: string, fallback: boolean): boolean {
+    const value = this.getAttribute(name)
+    return value === null ? fallback : value !== 'false'
+  }
 
-          <div class="actions" data-submit-section hidden>
-            <button type="button" class="btn btn--primary" data-submit>
-              Verificar identidad
-            </button>
-          </div>
+  private get extractsDocument(): boolean {
+    return this.flag('extract-document', false)
+  }
 
-        </div>
-      </div>
-    `
+  // ── Render ─────────────────────────────────────────────────────────────────
 
-    // Step 1 — ID upload
-    const idDropzone = new FileDropzone({
+  protected override render(body: HTMLElement): void {
+    this.idBlob = null
+    this.selfieBlob = null
+    this.idUpload = null
+    this.selfieUpload = null
+    this.docPrep = null
+    this.docPrepBlob = null
+    this.step = 1
+
+    this.stepper = this.buildStepper()
+    this.sections = { 1: this.buildIdStep(), 2: this.buildSelfieStep(), 3: this.buildResultStep() }
+
+    const privacy = document.createElement('p')
+    privacy.className = 'privacy-note'
+    privacy.textContent = 'Tus imágenes se procesan de forma segura y no se almacenan.'
+
+    body.append(this.stepper, this.sections[1]!, this.sections[2]!, this.sections[3]!, privacy)
+    this.goTo(1, false)
+  }
+
+  private buildStepper(): HTMLOListElement {
+    const list = document.createElement('ol')
+    list.className = 'stepper'
+    list.setAttribute('aria-label', 'Pasos de la verificación')
+    for (const [n, label] of STEPS) {
+      const item = document.createElement('li')
+      item.className = 'stepper__item'
+      item.dataset.step = String(n)
+      const dot = document.createElement('span')
+      dot.className = 'stepper__dot'
+      dot.setAttribute('aria-hidden', 'true')
+      dot.textContent = String(n)
+      const text = document.createElement('span')
+      text.className = 'stepper__label'
+      text.textContent = label
+      item.append(dot, text)
+      list.append(item)
+    }
+    return list
+  }
+
+  private section(step: Step, title: string, hint: string): HTMLElement {
+    const section = document.createElement('section')
+    section.className = 'wizard-step'
+    section.dataset.wizardStep = String(step)
+    const heading = document.createElement('h3')
+    heading.className = 'wizard-step__title'
+    heading.tabIndex = -1 // recibe el foco al cambiar de paso (lectores de pantalla)
+    heading.textContent = title
+    const sub = document.createElement('p')
+    sub.className = 'wizard-step__hint'
+    sub.textContent = hint
+    section.append(heading, sub)
+    return section
+  }
+
+  private button(label: string, variant: 'primary' | 'secondary' | 'ghost', onClick: () => void): HTMLButtonElement {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = `btn btn--${variant}`
+    btn.textContent = label
+    btn.addEventListener('click', onClick)
+    return btn
+  }
+
+  /** Fila de acciones: el último botón (principal) siempre queda a la derecha. */
+  private actions(...buttons: HTMLButtonElement[]): HTMLElement {
+    const row = document.createElement('div')
+    row.className = 'actions actions--split'
+    row.append(...buttons)
+    return row
+  }
+
+  private buildIdStep(): HTMLElement {
+    const section = this.section(1, 'Identificación oficial (INE)', 'Adjunta o fotografía el frente de tu INE, completo y sin reflejos.')
+    const next = this.button('Continuar', 'primary', () => {
+      this.prepareDocument()
+      this.goTo(2)
+    })
+    next.disabled = true
+    next.dataset.next = ''
+
+    this.idSlot = new CaptureSlot({
+      mode: this.idMode,
       accept: 'image/*',
-      onFile: (file) => void this.handleIdFile(file),
+      hint: 'Foto clara del frente de tu INE · JPG o PNG',
+      facing: 'environment',
+      guide: 'document',
+      onReady: (blob) => {
+        this.hideError()
+        this.idBlob = blob
+        this.idUpload = this.optimize(blob, this.extractsDocument ? ID_MAX_SIDE_OCR : ID_MAX_SIDE)
+        next.disabled = false
+        next.focus()
+      },
       onError: (msg) => this.handleError({ code: 'FILE_VALIDATION', message: msg }),
     })
-    root.querySelector('[data-id-zone]')!.appendChild(idDropzone.element)
 
-    // Step 2 — selfie via camera
-    this.camera = new CameraCapture({
-      onCapture: (base64) => this.handleSelfie(base64),
+    section.append(this.idSlot.element, this.actions(next))
+    return section
+  }
+
+  private buildSelfieStep(): HTMLElement {
+    const section = this.section(2, 'Selfie', 'Mira a la cámara con buena luz, sin lentes oscuros ni gorra.')
+    const submit = this.button('Verificar identidad', 'primary', () => void this.submit())
+    submit.disabled = true
+    submit.dataset.submit = ''
+
+    this.selfieSlot = new CaptureSlot({
+      mode: 'camera', // selfie en vivo: no se permite adjuntar archivo (dificulta la suplantación)
+      accept: 'image/*',
+      facing: 'user',
+      guide: 'face',
+      onReady: (blob) => {
+        this.hideError()
+        this.selfieBlob = blob
+        this.selfieUpload = this.cropSelfie(blob)
+        submit.disabled = !this.idBlob
+        submit.focus()
+      },
       onError: (msg) => this.handleError({ code: 'CAMERA_ERROR', message: msg }),
     })
-    root.querySelector('[data-selfie-zone]')!.appendChild(this.camera.element)
 
-    root.querySelector('[data-submit]')?.addEventListener('click', () => void this.submit())
+    section.append(this.selfieSlot.element, this.actions(this.button('Atrás', 'ghost', () => this.goTo(1)), submit))
+    return section
   }
 
-  private async handleIdFile(file: File): Promise<void> {
+  private buildResultStep(): HTMLElement {
+    const section = document.createElement('section')
+    section.className = 'wizard-step'
+    section.dataset.wizardStep = '3'
+    this.outcome = document.createElement('div')
+    section.append(this.outcome)
+    return section
+  }
+
+  // ── Navegación ─────────────────────────────────────────────────────────────
+
+  private goTo(step: Step, focus = true): void {
+    if (this.step === 2 && step !== 2) this.selfieSlot?.pauseCamera()
+    if (this.step === 1 && step !== 1) this.idSlot?.pauseCamera()
+    this.step = step
+
+    for (const [n, section] of Object.entries(this.sections)) section.hidden = Number(n) !== step
+    this.stepper?.querySelectorAll<HTMLElement>('.stepper__item').forEach((item) => {
+      const n = Number(item.dataset.step)
+      item.classList.toggle('stepper__item--active', n === step)
+      item.classList.toggle('stepper__item--done', n < step)
+      if (n === step) item.setAttribute('aria-current', 'step')
+      else item.removeAttribute('aria-current')
+    })
+
+    // La cámara se enciende al entrar (el clic en "Continuar" es el gesto del usuario)
+    if (step === 2 && !this.selfieBlob) this.selfieSlot?.startCamera()
+
+    this.emit('cortex:step', { step })
+    if (focus) this.sections[step]?.querySelector<HTMLElement>('.wizard-step__title, [tabindex="-1"]')?.focus()
+  }
+
+  private optimize(blob: Blob, maxSide: number): Promise<string | null> {
+    return prepareUpload(blob, maxSide).catch(() => null)
+  }
+
+  /** Selfie recortada al área del rostro (con el contexto que necesita la prueba de vida) y ≤960 px. */
+  private cropSelfie(blob: Blob): Promise<string | null> {
+    const tight = !this.flag('liveness', true)
+    return cropToBase64(blob, (w, h) => faceRegion(w, h, FACE_GUIDE, tight), SELFIE_MAX_SIDE).catch(() =>
+      this.optimize(blob, SELFIE_MAX_SIDE),
+    )
+  }
+
+  /** Envía la INE al servidor en cuanto el usuario continúa; reutiliza la sesión si la INE no cambió. */
+  private prepareDocument(): void {
+    const client = this.client
+    const blob = this.idBlob
+    if (!client || !blob || (this.docPrep && this.docPrepBlob === blob)) return
+
+    const upload = this.idUpload
+    const max = this.extractsDocument ? ID_MAX_SIDE_OCR : ID_MAX_SIDE
+    this.docPrepBlob = blob
+    const prep: Promise<DocumentPrep> = (async () => {
+      try {
+        const image = (await upload) ?? (await prepareUpload(blob, max))
+        const res = await client.prepareIdentityDocument(image, {
+          extractDocument: this.extractsDocument,
+          ocrEngine: this.ocrEngine,
+        })
+        return { session: res.document_session }
+      } catch (err) {
+        // INE inservible: se avisa ya. Cualquier otro error (red, backend anterior) → envío completo al verificar
+        return err instanceof CortexApiError && DOCUMENT_REJECTIONS.has(err.code) ? { rejected: err } : null
+      }
+    })()
+    this.docPrep = prep
+
+    // Mientras el usuario está en la selfie: regresar al paso 1 con el motivo, sin esperar a "Verificar"
+    void prep.then((state) => {
+      if (state && 'rejected' in state && this.docPrep === prep && this.step === 2 && !this.loading) {
+        this.rejectDocument(state.rejected)
+      }
+    })
+  }
+
+  private rejectDocument(err: unknown): void {
+    this.docPrep = null
+    this.docPrepBlob = null
+    this.goTo(1)
+    this.handleError(err)
+  }
+
+  private async verifyWithSession(client: ApiClient, session: string, selfie: string, options: VerifyOptions) {
     try {
-      this.idBase64 = await fileToBase64(file)
-      // Reveal step 2
-      const step2 = this.shadowRoot?.querySelector<HTMLElement>('[data-step="2"]')
-      if (step2) step2.hidden = false
-      step2?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      return await client.verifyIdentity(null, selfie, { ...options, documentSession: session })
     } catch (err) {
-      this.handleError(err)
+      if (!(err instanceof CortexApiError && err.code === 'DOCUMENT_SESSION_EXPIRED')) throw err
+      this.docPrep = null // expiró (o el servidor se reinició): se envía la INE completa
+      return client.verifyIdentity(await this.documentImage(), selfie, options)
     }
   }
 
-  private handleSelfie(base64: string): void {
-    this.selfieBase64 = base64
-    // Reveal submit button
-    const submitSection = this.shadowRoot?.querySelector<HTMLElement>('[data-submit-section]')
-    if (submitSection) submitSection.hidden = false
+  private async documentImage(): Promise<string> {
+    return (await this.idUpload) ?? prepareUpload(this.idBlob!, this.extractsDocument ? ID_MAX_SIDE_OCR : ID_MAX_SIDE)
   }
+
+  // ── Envío ──────────────────────────────────────────────────────────────────
 
   private async submit(): Promise<void> {
-    if (!this.client) {
-      this.handleError({ code: 'INVALID_API_KEY', message: 'Configura un api-key válido.' })
+    const client = this.requireClient()
+    if (!client || this.loading) return
+    if (!this.idBlob || !this.selfieBlob) {
+      this.handleError({ code: 'MISSING_CAPTURE', message: 'Captura tu identificación y tu selfie.' })
       return
     }
-    if (!this.idBase64) {
-      this.handleError({ code: 'MISSING_ID', message: 'Por favor sube o fotografía tu identificación (Paso 1).' })
-      return
-    }
-    if (!this.selfieBase64) {
-      this.handleError({ code: 'MISSING_SELFIE', message: 'Por favor tómate una selfie (Paso 2).' })
-      return
-    }
+
     this.hideError()
-    this.setLoading(true)
+    this.goTo(3)
+    this.showProgress()
+    this.setLoading(true, 'Verificando identidad...', false)
     try {
-      const raw = await this.client.faceCompareBase64(this.idBase64, this.selfieBase64)
-      // Apply threshold on the client side for consistent UX
-      const result = { ...raw, verified: raw.similarity >= this.threshold && raw.face_detected }
+      // Normalmente la INE ya está procesada en el servidor: solo falta la selfie
+      const prep = await this.docPrep
+      if (prep && 'rejected' in prep) {
+        this.setLoading(false)
+        this.rejectDocument(prep.rejected)
+        return
+      }
+      const selfie = (await this.selfieUpload) ?? (await this.cropSelfie(this.selfieBlob))
+      if (!selfie) throw new Error('No se pudo leer la selfie.')
+      const options: VerifyOptions = {
+        checkLiveness: this.flag('liveness', true),
+        threshold: this.minSimilarity,
+        extractDocument: this.extractsDocument,
+        ocrEngine: this.ocrEngine,
+        externalId: this.externalId,
+      }
+      const result = prep
+        ? await this.verifyWithSession(client, prep.session, selfie, options)
+        : await client.verifyIdentity(await this.documentImage(), selfie, options)
+      this.docPrep = null // el servidor cerró la sesión al completar la verificación
       this.callOnResult(result)
+      this.showOutcome(this.resultEnabled ? this.buildPanel(result) : this.buildDone())
     } catch (err) {
       this.handleError(err)
+      this.showOutcome(this.buildFailure())
     } finally {
       this.setLoading(false)
     }
   }
 
+  private showOutcome(node: HTMLElement): void {
+    this.outcome?.replaceChildren(node)
+    node.querySelector<HTMLElement>('.result__title, .wizard-step__title')?.focus()
+  }
+
+  private showProgress(): void {
+    const box = document.createElement('div')
+    box.className = 'wizard-progress'
+    box.setAttribute('role', 'status')
+    const spinner = document.createElement('div')
+    spinner.className = 'spinner'
+    const title = document.createElement('p')
+    title.className = 'wizard-step__title'
+    title.textContent = 'Verificando identidad…'
+    const list = document.createElement('ul')
+    list.className = 'wizard-progress__list'
+    const tasks = ['Comparación del rostro con la INE']
+    if (this.flag('liveness', true)) tasks.push('Prueba de vida')
+    if (this.extractsDocument) tasks.push('Lectura de los datos de la INE')
+    for (const task of tasks) {
+      const li = document.createElement('li')
+      li.textContent = task
+      list.append(li)
+    }
+    box.append(spinner, title, list)
+    this.outcome?.replaceChildren(box)
+  }
+
+  /** Error de la API o de red: reintentar con las mismas fotos o corregirlas. */
+  private buildFailure(): HTMLElement {
+    const box = document.createElement('div')
+    box.className = 'wizard-progress'
+    const title = document.createElement('p')
+    title.className = 'wizard-step__title'
+    title.tabIndex = -1
+    title.textContent = 'No se pudo completar la verificación'
+    box.append(
+      title,
+      this.actions(
+        this.button('Corregir fotos', 'ghost', () => this.goTo(2)),
+        this.button('Reintentar', 'primary', () => void this.submit()),
+      ),
+    )
+    return box
+  }
+
+  /** show-result="false": el integrador muestra su propio resultado; aquí solo se cierra el flujo. */
+  private buildDone(): HTMLElement {
+    const box = document.createElement('div')
+    box.className = 'wizard-progress'
+    const title = document.createElement('p')
+    title.className = 'wizard-step__title'
+    title.tabIndex = -1
+    title.textContent = 'Verificación enviada'
+    box.append(title, this.actions(this.button('Verificar de nuevo', 'secondary', () => this.reset())))
+    return box
+  }
+
+  private buildPanel(result: IdentityResult): HTMLElement {
+    const pct = (v: number) => `${Math.round(v * 100)}%`
+    const status: ResultStatus = !result.verified ? 'error' : result.similarity_approved ? 'success' : 'warning'
+    const title =
+      status === 'success' ? 'Identidad verificada' : status === 'warning' ? 'Verificada con observaciones' : 'No se pudo verificar la identidad'
+    const subtitle =
+      status === 'warning'
+        ? 'El rostro coincide, pero la similitud está debajo del nivel configurado.'
+        : status === 'error'
+          ? result.liveness === false
+            ? 'No se superó la prueba de vida. Toma la selfie en vivo, sin fotos ni pantallas.'
+            : 'El rostro no coincide con la INE. Intenta con más luz y de frente.'
+          : undefined
+
+    const checks = [
+      { label: `El rostro coincide con la INE (≥ ${pct(result.threshold)})`, ok: result.face_match },
+      { label: `Nivel de similitud configurado (≥ ${pct(result.min_similarity)})`, ok: result.similarity_approved },
+      { label: 'Prueba de vida', ok: result.liveness },
+    ]
+    const rows: Array<[string, string]> = []
+    const doc = result.document
+    if (doc) {
+      const name = formatValue(doc.derived['nombre_completo'])
+      const curp = formatValue(doc.fields['curp'])
+      if (name) rows.push(['Nombre', name])
+      if (curp) rows.push(['CURP', curp])
+      checks.push({ label: 'INE vigente', ok: doc.validations['vigente'] ?? null })
+    }
+
+    const panel = createResultPanel({
+      status,
+      title,
+      subtitle,
+      metric: { label: 'Similitud facial', value: result.similarity },
+      rows,
+      checks,
+      warnings: result.warnings
+        .filter((w) => !HIDDEN_WARNINGS.has(w))
+        .map((w) => WARNING_LABELS[w.split(':')[0]!] ?? w),
+      resetLabel: 'Verificar de nuevo',
+      onReset: () => this.reset(),
+    })
+    panel.querySelector<HTMLElement>('.result__title')?.setAttribute('tabindex', '-1')
+    return panel
+  }
+
   protected override cleanup(): void {
-    this.camera?.stop()
+    this.idSlot?.stop()
+    this.selfieSlot?.stop()
   }
 }

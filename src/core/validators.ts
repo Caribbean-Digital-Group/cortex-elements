@@ -12,6 +12,8 @@ const ALLOWED_IMAGE_MIMES = new Set([
   'image/bmp',
   'image/tiff',
   'application/pdf',
+  'application/xml',
+  'text/xml',
 ])
 
 const ACCEPT_MIME_MAP = new Map<string, string[]>([
@@ -23,7 +25,16 @@ const ACCEPT_MIME_MAP = new Map<string, string[]>([
   ['image/bmp', ['image/bmp']],
   ['image/tiff', ['image/tiff']],
   ['image/gif', ['image/gif']],
+  ['application/xml', ['application/xml', 'text/xml']],
+  ['text/xml', ['application/xml', 'text/xml']],
+  ['.xml', ['application/xml', 'text/xml']],
 ])
+
+/** Algunos sistemas operativos no reportan MIME para .xml; se infiere por extensión. */
+export function effectiveMime(file: File): string {
+  if (file.type) return file.type
+  return /\.xml$/i.test(file.name) ? 'application/xml' : ''
+}
 
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB
 
@@ -75,8 +86,9 @@ export function validateFile(
   if (file.size > maxBytes) {
     return `El archivo es demasiado grande. Máximo ${Math.round(maxBytes / 1024 / 1024)} MB.`
   }
-  if (!allowedMimes.has(file.type)) {
-    return `El tipo de archivo "${file.type}" no es compatible.`
+  const mime = effectiveMime(file)
+  if (!allowedMimes.has(mime)) {
+    return `El tipo de archivo "${mime || file.name}" no es compatible.`
   }
   return null
 }
