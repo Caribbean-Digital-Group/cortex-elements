@@ -62,6 +62,10 @@ const HIDDEN_WARNINGS = new Set(['LIVENESS_NO_DISPONIBLE', 'MOTOR_DE_RESPALDO'])
  *   document.querySelector('cortex-identity').onResult = (r) => console.log(r.verified, r.similarity_approved)
  */
 export class CortexIdentity extends BaseElement {
+  protected readonly elementId = 'identity' as const
+  // Wizard con su propio indicador de pasos y nota de privacidad
+  protected override readonly hasOwnStepper = true
+  protected override readonly hasOwnFooter = true
   private idBlob: Blob | null = null
   private selfieBlob: Blob | null = null
   /** Las imágenes se optimizan en cuanto se capturan, mientras el usuario avanza al siguiente paso. */
@@ -118,6 +122,13 @@ export class CortexIdentity extends BaseElement {
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
+  protected override defaultCopy(): { title: string; description: string } {
+    return {
+      title: 'Verifica tu identidad',
+      description: 'Necesitarás tu INE y tomarte una selfie. Toma menos de un minuto.',
+    }
+  }
 
   protected override render(body: HTMLElement): void {
     this.idBlob = null

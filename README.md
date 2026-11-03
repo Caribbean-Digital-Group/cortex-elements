@@ -81,12 +81,19 @@ Este repo no se despliega por sí mismo: la versión pública cambia solo cuando
 src/
 ├── index.ts        # registra los tres custom elements
 ├── elements/       # cortex-ocr, cortex-identity, cortex-signature
-├── core/           # api-client, base-element, validators
+├── core/           # api-client, base-element, appearance (diseño del dashboard), validators
 ├── ui/             # dropzone, cámara, canvas de firma
 ├── styles/         # tokens y estilos (Shadow DOM + CSS variables)
 └── types/          # tipos de resultado
 demo/               # páginas de prueba de `npm run demo`
 tests/              # Vitest
 ```
+
+## Diseño desde el dashboard
+
+Los clientes eligen estructura (`classic`, `compact`, `guided`), colores, bordes, sombra, tipografía y textos en
+**cortex-verify → Elements → Personalizar diseño**. Cada element lee ese diseño con su API key al cargarse
+(`GET /elements/config`) y, si algo falla, conserva el diseño original. Los atributos `layout`/`theme` y el CSS del
+integrador siempre ganan; `remote-appearance="false"` lo desactiva. Detalle en `CLAUDE.md`.
 
 Sin frameworks de UI: TypeScript + Custom Elements API nativa. La referencia de atributos, eventos y contratos está en `CLAUDE.md` y en la documentación del dashboard (`/dashboard/elements`).

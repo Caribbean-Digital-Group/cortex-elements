@@ -2,6 +2,12 @@ import type { DocumentType, OcrEngine, OcrResult } from '../types/ocr'
 import type { IdentityDocumentSession, IdentityResult } from '../types/identity'
 import type { SignatureResult, SignatureSampleSource } from '../types/signature'
 
+/** Respuesta de GET /elements/config. `config: null` = diseño por defecto. */
+export interface ElementsConfigResponse {
+  config: unknown
+  updated_at: string | null
+}
+
 /**
  * URL del backend usada cuando el element no define `api-url`.
  * Se fija al compilar desde VITE_CORTEX_API_URL (.env / .env.production); vite.config.ts la valida.
@@ -9,7 +15,7 @@ import type { SignatureResult, SignatureSampleSource } from '../types/signature'
 export const DEFAULT_API_URL: string = import.meta.env.VITE_CORTEX_API_URL.replace(/\/+$/, '')
 
 // OCR y biometría pueden tardar (modelos de IA); se da margen suficiente
-const TIMEOUT_MS = { ocr: 90_000, face: 60_000, signature: 30_000 }
+const TIMEOUT_MS = { ocr: 90_000, face: 60_000, signature: 30_000, config: 5_000 }
 
 // Reintento automático único cuando el servidor indica saturación temporal
 const RETRYABLE_STATUS = new Set([503])
@@ -106,6 +112,20 @@ export class ApiClient {
     }
     if (!res.ok) throw await toApiError(res)
     return res.json() as Promise<T>
+  }
+
+  /**
+   * Diseño configurado en el dashboard para la cuenta de la key. No consume cuota ni se registra.
+   * El navegador puede reutilizar la respuesta (Cache-Control corto + ETag).
+   */
+  async getElementsConfig(): Promise<ElementsConfigResponse> {
+    const res = await fetchWithTimeout(
+      `${this.base}/elements/config`,
+      { method: 'GET', headers: { Authorization: this.authHeader, Accept: 'application/json' } },
+      TIMEOUT_MS.config,
+    )
+    if (!res.ok) throw await toApiError(res)
+    return res.json() as Promise<ElementsConfigResponse>
   }
 
   /** Extracción estructurada de INE, CURP, CFDI (imagen/PDF/XML) o Constancia de Situación Fiscal. */

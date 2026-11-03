@@ -46,6 +46,7 @@ const EXTERNAL_ID_MAX = 100
  *   document.querySelector('cortex-signature').onResult = (r) => console.log(r.authentic, r.similarity_approved)
  */
 export class CortexSignature extends BaseElement {
+  protected readonly elementId = 'signature' as const
   private reference: Blob | null = null
   private sampleFile: Blob | null = null
   private sampleDrawing: Blob | null = null
@@ -78,6 +79,13 @@ export class CortexSignature extends BaseElement {
     if (this.sampleSource === 'canvas' && this.sampleDrawing) return { blob: this.sampleDrawing, source: 'canvas' }
     if (this.sampleFile) return { blob: this.sampleFile, source: 'upload' }
     return this.sampleDrawing ? { blob: this.sampleDrawing, source: 'canvas' } : null
+  }
+
+  protected override defaultCopy(): { title: string; description: string } {
+    return {
+      title: 'Verificación de firma',
+      description: 'Adjunta la firma de referencia y la firma a comparar, o dibújala en pantalla.',
+    }
   }
 
   protected override render(body: HTMLElement): void {

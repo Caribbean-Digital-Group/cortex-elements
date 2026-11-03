@@ -8,6 +8,9 @@
  *   }
  *
  * Or switch the whole palette with the `theme="light"` attribute.
+ *
+ * The dashboard design (core/appearance.ts) overrides these tokens from a second <style>;
+ * the light block below is also reused from there, keep its selector as is.
  */
 :host {
   /* Brand */
@@ -40,6 +43,7 @@
   /* Shape */
   --cortex-radius: 0.75rem;
   --cortex-radius-sm: 0.5rem;
+  --cortex-shadow: none;
 
   /* Typography */
   --cortex-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

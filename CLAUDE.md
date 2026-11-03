@@ -65,7 +65,8 @@ cortex-elements/
 │   │   └── cortex-signature.ts   # <cortex-signature />
 │   ├── core/
 │   │   ├── api-client.ts         # Wrapper fetch → backend Cortex
-│   │   ├── base-element.ts       # Clase base con lógica común (api-key, errores, loading)
+│   │   ├── base-element.ts       # Clase base con lógica común (api-key, errores, loading, diseño)
+│   │   ├── appearance.ts         # Diseño del dashboard: normaliza el contrato, genera CSS, carga remota
 │   │   └── validators.ts         # Validación de atributos
 │   ├── ui/
 │   │   ├── file-dropzone.ts      # UI reutilizable: drag & drop + click to upload
@@ -129,7 +130,9 @@ y el element emite `cortex:error` con `{ code, message }`. Códigos útiles para
 
 ## Especificación de cada custom element
 
-Atributos comunes: `api-key` (requerido), `api-url`, `theme` (`dark` | `light`), `show-result` (`true` | `false`).
+Atributos comunes: `api-key` (requerido), `api-url`, `theme` (`dark` | `light`), `show-result` (`true` | `false`),
+`layout` (`classic` | `compact` | `guided`) y `remote-appearance` (`false` ignora el diseño del dashboard).
+Propiedad JS común: `element.appearance` (diseño explícito; ver "Diseño configurable desde el dashboard").
 Eventos comunes: `cortex:result`, `cortex:error` (`{ code, message }`), `cortex:loading` (`{ loading }`).
 Callback: propiedad JS `element.onResult = (data) => {}` (nunca se evalúa el atributo `on-result`).
 Cambiar un atributo de configuración re-renderiza el element. `element.reset()` vuelve al estado inicial.
@@ -197,6 +200,72 @@ y llama `render(body)` del element. Helpers: `emit`, `setLoading(loading, messag
 
 ---
 
+## Diseño configurable desde el dashboard
+
+El cliente personaliza sus widgets en **cortex-verify → Elements → Personalizar diseño** y los cambios llegan a su
+sitio sin tocar su código. Cada element, al montarse, pide `GET /elements/config` con su API key (no consume cuota,
+no se registra, respeta `allowed_origins`) y aplica el diseño. Archivos: `src/core/appearance.ts`,
+`src/types/appearance.ts` y la parte de diseño de `src/core/base-element.ts`.
+
+### Contrato (`version: 1`)
+
+Fuente de verdad: `cortex/app/models/elements.py`. Los defaults reproducen el diseño original.
+
+```jsonc
+{
+  "version": 1,
+  "layout": "classic",            // classic | compact | guided
+  "theme": "dark",                // dark | light | auto (sigue prefers-color-scheme)
+  "colors": { "primary": null, "background": null, "surface": null, "text": null },  // #rrggbb o null
+  "radius": "md",                 // none | sm | md | lg | xl
+  "shadow": "none",               // none | soft | strong
+  "font": "system",               // system | inherit | rounded | serif | mono
+  "elements": {                   // por element; null = hereda / texto por defecto
+    "ocr":       { "layout": null, "title": null, "description": null },
+    "identity":  { "layout": null, "title": null, "description": null },
+    "signature": { "layout": null, "title": null, "description": null }
+  }
+}
+```
+
+### Estructuras
+
+| Layout | Qué cambia | Uso |
+|---|---|---|
+| `classic` | Nada: es el diseño original (sin reglas CSS extra) | Páginas dedicadas |
+| `compact` | Menos padding, zonas de carga en línea (ícono + texto), stepper solo con el paso activo | Formularios, modales |
+| `guided` | Encabezado con ícono, título y descripción; progreso Captura → Análisis → Resultado (OCR y firma; identity usa su propio wizard); zonas y botones grandes; nota de privacidad | Onboarding móvil |
+
+`.cortex-element[data-layout]` define la estructura; las reglas viven al final de `base.css`. Nunca cambiar la
+proporción 4:3 de la cámara (`FACE_GUIDE`). El encabezado (`.layout-header`) aparece en `guided` o si el dashboard
+define título/descripción; con encabezado, `cortex-ocr` omite su `.element-heading`. Cada element define
+`elementId` y `defaultCopy()`; `hasOwnStepper`/`hasOwnFooter` evitan duplicar el progreso y la nota en identity.
+
+### Precedencia
+
+1. Lo que define el integrador: atributos `layout` / `theme` y su CSS sobre el tag (las reglas de la página ganan a las del shadow DOM).
+2. La propiedad `element.appearance` (la usa la vista previa del dashboard con `remote-appearance="false"`).
+3. El diseño guardado en el dashboard.
+4. El diseño original.
+
+Con `theme` en el HTML se respeta ese tema y del dashboard solo aplican acento, bordes, sombra, tipografía,
+estructura y textos (fondo/superficie/texto propios usan `:host(:not([theme]))`).
+
+### Carga sin romper el funcionamiento
+
+- El render nunca espera la red: si falla la llamada (key inválida, red, backend sin el endpoint) queda el diseño original.
+- Primera carga: el element se oculta (`.cortex-element--pending`, opacity 0) hasta 700 ms esperando el diseño, para no parpadear.
+- Una sola llamada por key y página (promesa compartida); el resultado se guarda en `sessionStorage` 10 min
+  (la entrada se nombra con un hash, no con la key) y la siguiente carga pinta al instante y revalida en segundo plano.
+- Si el diseño llega tarde y el usuario ya interactuó, solo se actualizan los estilos (no se re-renderiza ni se pierde la captura).
+
+### Seguridad
+
+Los valores llegan al CSS solo por listas cerradas o la regex `#rrggbb`; los textos se pintan con `textContent`.
+`appearanceCss()` genera un `<style data-appearance>` después de los estilos base, con selectores de la misma
+especificidad que `:host([theme='light'])`. La paleta clara se lee de `tokens.css` (`extractLightTokens`, tolera el
+CSS minificado): no duplicar valores.
+
 ## Personalización de estilos (CSS Variables)
 
 Los elementos exponen variables CSS que el cliente puede sobreescribir:
@@ -207,11 +276,13 @@ cortex-ocr {
   --cortex-bg: #0f172a;             /* Fondo del componente */
   --cortex-border: rgba(255,255,255,0.1);
   --cortex-radius: 0.75rem;
+  --cortex-shadow: none;            /* Sombra del contenedor */
   --cortex-font: inherit;
 }
 ```
 
 El Shadow DOM usa estas variables — el cliente no puede romper los estilos internos pero sí adaptar el look al de su producto.
+Estas variables ganan al diseño del dashboard (ver la sección anterior).
 
 ---
 
@@ -250,7 +321,7 @@ npm run build
 # Servir demos locales en localhost:5174
 npm run demo
 
-# Tests (Vitest + happy-dom)
+# Tests (Vitest + happy-dom; procesan el CSS `?inline` como el build)
 npm run test
 ```
 

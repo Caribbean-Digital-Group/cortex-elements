@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearAppearanceCache } from '../src/core/appearance'
 
 beforeAll(async () => {
   // happy-dom no implementa canvas 2D; basta un stub para renderizar el área de firma
@@ -7,6 +8,13 @@ beforeAll(async () => {
     return new Proxy({}, { get: (_t, prop) => (prop === 'canvas' ? this : () => undefined), set: () => true })
   } as unknown as HTMLCanvasElement['getContext']
   await import('../src/index')
+})
+
+// Sin diseño en el dashboard: los elements piden GET /elements/config y conservan el diseño original
+beforeEach(() => {
+  clearAppearanceCache()
+  sessionStorage.clear()
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ config: null, updated_at: null }))))
 })
 
 function mount(html: string): HTMLElement {

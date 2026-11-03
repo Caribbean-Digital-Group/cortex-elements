@@ -31,8 +31,15 @@
   background: var(--cortex-bg);
   border: 1px solid var(--cortex-border);
   border-radius: var(--cortex-radius);
+  box-shadow: var(--cortex-shadow);
   padding: 1.5rem;
   overflow: hidden;
+  transition: opacity 0.2s ease;
+}
+
+/* Esperando el diseño del dashboard en la primera carga (máx. 700 ms): evita el parpadeo */
+.cortex-element--pending {
+  opacity: 0;
 }
 
 /* ── Error banner ────────────────────────────────────────────────────────────── */
@@ -153,6 +160,7 @@
 .dropzone--over {
   border-color: var(--cortex-primary);
   background: rgba(6, 182, 212, 0.04);
+  background: color-mix(in srgb, var(--cortex-primary) 5%, transparent);
 }
 
 .dropzone:focus-visible {
@@ -703,8 +711,214 @@
   margin-top: 0.25rem;
 }
 
+/* ══ Diseño configurable (dashboard → Elements → Diseño) ═══════════════════════
+ * data-layout en .cortex-element: classic (original, sin reglas extra) | compact | guided.
+ * No cambiar la proporción 4:3 de la cámara: FACE_GUIDE en camera-capture.ts depende de ella.
+ */
+
+/* Encabezado: textos del dashboard o layout guiado */
+.layout-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.layout-header__title {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--cortex-text);
+}
+
+.layout-header__description {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--cortex-text-muted);
+}
+
+.layout-header__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--cortex-radius);
+  color: var(--cortex-primary);
+  background: rgba(6, 182, 212, 0.12);
+  background: color-mix(in srgb, var(--cortex-primary) 14%, transparent);
+}
+
+.layout-header__icon svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.layout-footer {
+  margin-top: 1.25rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--cortex-text-muted);
+}
+
+/* ── Compacto: denso, para formularios y paneles laterales ─────────────────── */
+.cortex-element[data-layout='compact'] {
+  padding: 1rem;
+}
+
+[data-layout='compact'] .layout-header {
+  margin-bottom: 0.75rem;
+}
+
+[data-layout='compact'] .layout-header__title,
+[data-layout='compact'] .element-heading,
+[data-layout='compact'] .wizard-step__title {
+  font-size: 0.875rem;
+}
+
+[data-layout='compact'] .element-heading {
+  margin-bottom: 0.625rem;
+}
+
+[data-layout='compact'] .dropzone {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+[data-layout='compact'] .dropzone__icon,
+[data-layout='compact'] .dropzone__preview {
+  grid-row: span 2;
+  margin: 0;
+}
+
+[data-layout='compact'] .dropzone__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: var(--cortex-surface);
+  font-size: 1rem;
+}
+
+[data-layout='compact'] .dropzone__preview {
+  max-height: 3rem;
+  max-width: 4.5rem;
+}
+
+[data-layout='compact'] .dropzone__label {
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+[data-layout='compact'] .separator {
+  margin: 0.5rem 0;
+}
+
+[data-layout='compact'] .slots,
+[data-layout='compact'] .sig-panels {
+  gap: 0.75rem;
+}
+
+[data-layout='compact'] .actions {
+  margin-top: 0.75rem;
+}
+
+[data-layout='compact'] .stepper {
+  margin-bottom: 0.75rem;
+}
+
+[data-layout='compact'] .stepper__item:not(.stepper__item--active) .stepper__label {
+  display: none;
+}
+
+[data-layout='compact'] .wizard-step__hint {
+  margin-bottom: 0.625rem;
+}
+
+[data-layout='compact'] .result {
+  gap: 0.625rem;
+}
+
+[data-layout='compact'] .result__rows {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+/* ── Guiado: encabezado con ícono, progreso visible y llamadas a la acción grandes ── */
+.cortex-element[data-layout='guided'] {
+  padding: 2rem;
+}
+
+[data-layout='guided'] .layout-header {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+[data-layout='guided'] .layout-header__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+[data-layout='guided'] .layout-header__description {
+  font-size: 0.875rem;
+  max-width: 28rem;
+  margin-inline: auto;
+}
+
+[data-layout='guided'] .layout-progress {
+  max-width: 26rem;
+  margin: 0 auto 1.5rem;
+}
+
+[data-layout='guided'] .dropzone {
+  padding: 2.5rem 1.5rem;
+  background: var(--cortex-surface);
+}
+
+[data-layout='guided'] .dropzone__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin: 0 auto 0.75rem;
+  border-radius: 50%;
+  font-size: 1.375rem;
+  color: var(--cortex-primary);
+  background: rgba(6, 182, 212, 0.12);
+  background: color-mix(in srgb, var(--cortex-primary) 14%, transparent);
+}
+
+[data-layout='guided'] .actions:not(.actions--split) {
+  justify-content: center;
+}
+
+[data-layout='guided'] .btn--primary {
+  padding: 0.75rem 2rem;
+  font-size: 0.9375rem;
+}
+
+[data-layout='guided'] .stepper {
+  margin-bottom: 1.5rem;
+}
+
+[data-layout='guided'] .wizard-step__title {
+  font-size: 1.125rem;
+}
+
 @media (max-width: 480px) {
   .cortex-element { padding: 1rem; }
+  .cortex-element[data-layout='guided'] { padding: 1.25rem; }
   .result__rows { grid-template-columns: 1fr; }
   .result__rows dd { margin-bottom: 0.375rem; }
 }

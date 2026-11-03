@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, loadEnv } from 'vite'
 
@@ -36,6 +37,10 @@ export default defineConfig(({ mode }) => {
   return {
     define: {
       'import.meta.env.VITE_CORTEX_API_URL': JSON.stringify(apiUrl),
+    },
+    // Pruebas: procesar los `?inline` de CSS igual que en el build (core/appearance.ts lee tokens.css)
+    test: {
+      css: { include: [/.+/] },
     },
     build: {
       lib: {

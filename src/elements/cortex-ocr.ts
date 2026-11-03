@@ -42,6 +42,7 @@ const ENGINES: OcrEngine[] = ['auto', 'mistral', 'glm']
  *   document.querySelector('cortex-ocr').onResult = (r) => console.log(r.fields.curp)
  */
 export class CortexOcr extends BaseElement {
+  protected readonly elementId = 'ocr' as const
   private slots: CaptureSlot[] = []
   private captures: Array<Blob | null> = []
 
@@ -80,17 +81,32 @@ export class CortexOcr extends BaseElement {
     return `JPG, PNG, PDF${xml} · máx. 10 MB`
   }
 
+  private get headingText(): string {
+    return this.docType === 'auto'
+      ? 'Sube tu documento: INE, CURP, factura CFDI o Constancia de Situación Fiscal'
+      : `Sube tu ${DOCUMENT_TYPE_LABELS[this.docType]}`
+  }
+
+  protected override defaultCopy(): { title: string; description: string } {
+    return {
+      title: this.headingText,
+      description: this.bothSides
+        ? 'Captura el anverso y el reverso; extraemos y validamos tus datos en segundos.'
+        : 'Adjunta un archivo o toma una foto; extraemos y validamos tus datos en segundos.',
+    }
+  }
+
   protected override render(body: HTMLElement): void {
     const titles = this.bothSides ? ['Anverso de la INE', 'Reverso de la INE'] : [undefined]
     this.captures = titles.map(() => null)
 
-    const heading = document.createElement('p')
-    heading.className = 'element-heading'
-    heading.textContent =
-      this.docType === 'auto'
-        ? 'Sube tu documento: INE, CURP, factura CFDI o Constancia de Situación Fiscal'
-        : `Sube tu ${DOCUMENT_TYPE_LABELS[this.docType]}`
-    body.append(heading)
+    // Con encabezado de diseño (layout guiado o título del dashboard) el título vive ahí
+    if (!this.headerVisible) {
+      const heading = document.createElement('p')
+      heading.className = 'element-heading'
+      heading.textContent = this.headingText
+      body.append(heading)
+    }
 
     const grid = document.createElement('div')
     grid.className = this.bothSides ? 'slots slots--two' : 'slots'
